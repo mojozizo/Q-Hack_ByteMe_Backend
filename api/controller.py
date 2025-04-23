@@ -10,7 +10,8 @@ router = APIRouter()
 async def upload_pdf(
     file: UploadFile = File(...), 
     query: str = None,
-    use_agent_workflow: bool = Query(False, description="Whether to use LangChain agent workflow")
+    use_agent_workflow: bool = Query(False, description="Whether to use LangChain agent workflow"),
+    use_modular_workflow: bool = Query(False, description="Whether to use the new modular retrieval workflow")
 ):
     try:
         # Validate file type
@@ -26,7 +27,8 @@ async def upload_pdf(
             # Process the file and get the extracted data
             extracted_data = ExtractorHandler.get_extractor(
                 "pdf", 
-                use_agent_workflow=use_agent_workflow
+                use_agent_workflow=use_agent_workflow,
+                use_modular_workflow=use_modular_workflow
             ).extract(file, query)
             
             return JSONResponse(
@@ -36,7 +38,8 @@ async def upload_pdf(
                     "filename": file.filename,
                     "file_path": str(file_path),
                     "processed_info": extracted_data,
-                    "used_agent_workflow": use_agent_workflow
+                    "used_agent_workflow": use_agent_workflow,
+                    "used_modular_workflow": use_modular_workflow
                 }
             )
         except Exception as processing_error:

@@ -14,6 +14,7 @@ class CompanyInfo(BaseModel):
     required_funding_amount: Optional[int] = Field(None, description="Required Funding Amount")
     employees: Optional[str] = Field(None, description="Number of Employees (range)")
     website_link: Optional[str] = Field(None, description="Website Link")
+    founders: Optional[str] = Field(None, description="Name and Designation of Founders")
     one_sentence_pitch: Optional[str] = Field(None, description="One Sentence Pitch")
     linkedin_profile_ceo: Optional[str] = Field(None, description="LinkedIn Profile of CEO")
     pitch_deck_summary: Optional[str] = Field(None, description="Summary of pitch deck highlighting important aspects")

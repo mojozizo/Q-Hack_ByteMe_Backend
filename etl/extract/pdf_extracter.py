@@ -113,7 +113,7 @@ class PDFExtracter(AbstractExtracter):
     
     def _extract_text_from_pdf(self, file_path: PathLib) -> str:
         """
-        Extracts text content from a PDF file.
+        Extracts text content from a PDF file using LangChain's document loaders.
         
         Args:
             file_path: Path to the PDF file
@@ -121,17 +121,30 @@ class PDFExtracter(AbstractExtracter):
         Returns:
             str: Extracted text content
         """
-        text = ""
         try:
-            with open(file_path, "rb") as pdf_file:
-                pdf_reader = PyPDF2.PdfReader(pdf_file)
-                for page_num in range(len(pdf_reader.pages)):
-                    page = pdf_reader.pages[page_num]
-                    text += page.extract_text() + "\n\n"
-            return text
+            from langchain_community.document_loaders import PyPDFLoader
+            
+            # Use LangChain's PyPDFLoader
+            loader = PyPDFLoader(str(file_path))
+            documents = loader.load()
+            
+            # Combine all document pages into a single text
+            return "\n\n".join([doc.page_content for doc in documents])
         except Exception as e:
-            print(f"Error extracting text from PDF: {str(e)}")
-            return ""
+            print(f"Error extracting text from PDF with LangChain: {str(e)}")
+            
+            # Fallback to PyPDF2 if LangChain loader fails
+            text = ""
+            try:
+                with open(file_path, "rb") as pdf_file:
+                    pdf_reader = PyPDF2.PdfReader(pdf_file)
+                    for page_num in range(len(pdf_reader.pages)):
+                        page = pdf_reader.pages[page_num]
+                        text += page.extract_text() + "\n\n"
+                return text
+            except Exception as e2:
+                print(f"Fallback PDF extraction also failed: {str(e2)}")
+                return ""
     
     def _extract_with_openai_assistant(self, file_path: PathLib, query: str = None) -> Dict[str, Any]:
         """

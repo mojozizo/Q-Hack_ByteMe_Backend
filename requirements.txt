@@ -28,3 +28,7 @@ typing_extensions==4.13.2
 uvicorn==0.27.1
 newsapi-python==0.2.6
 sec-edgar-api==1.1.0
+# New dependencies for enhanced LangChain functionality
+langchain-experimental>=0.0.47
+faiss-cpu>=1.7.4
+tiktoken>=0.5.2  # For token counting with OpenAI models

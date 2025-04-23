@@ -366,7 +366,49 @@ class PDFAgentTools:
             Dictionary with CategoryToSearch data
         """
         try:
-            return WebSearchUtils.search_category_to_search_data(company_name)
+            from langchain_core.pydantic_v1 import BaseModel, Field, create_model
+            from langchain.output_parsers.pydantic import PydanticOutputParser
+            from langchain_core.prompts import PromptTemplate
+            from langchain_openai import ChatOpenAI
+            from models.model import CategoryToSearch
+            
+            # Create parser based on the CategoryToSearch model
+            parser = PydanticOutputParser(pydantic_object=CategoryToSearch)
+            
+            # Get data from WebSearchUtils
+            news_data = WebSearchUtils.search_news(company_name)
+            company_info = WebSearchUtils.search_company_info(company_name)
+            
+            # Create a prompt that includes context and formatting instructions
+            prompt = PromptTemplate(
+                template="""Based on the following information about {company_name}, please extract 
+                metrics that match the CategoryToSearch model.
+                
+                Company Information: {company_info}
+                News Data: {news_data}
+                
+                {format_instructions}
+                """,
+                input_variables=["company_name", "company_info", "news_data"],
+                partial_variables={"format_instructions": parser.get_format_instructions()},
+            )
+            
+            # Format the prompt with real data
+            formatted_prompt = prompt.format(
+                company_name=company_name,
+                company_info=json.dumps(company_info),
+                news_data=json.dumps(news_data)
+            )
+            
+            # Get response from LLM
+            llm = ChatOpenAI(temperature=0, model="gpt-4o")
+            response = llm.invoke(formatted_prompt)
+            
+            # Parse the response into our model
+            data = parser.parse(response.content)
+            
+            # Return as dictionary
+            return data.model_dump()
         except Exception as e:
             print(f"Error getting CategoryToSearch data: {str(e)}")
             return {}
@@ -398,6 +440,14 @@ class PDFAgentExecutor:
             PDFAgentTools.get_category_to_search_data
         ]
         
+        # Add memory to maintain conversation context
+        from langchain.memory import ConversationBufferMemory
+        
+        self.memory = ConversationBufferMemory(
+            memory_key="chat_history", 
+            return_messages=True
+        )
+        
         # Create the system prompt
         system_prompt = """You are a specialized financial analyst agent that extracts structured data from startup pitch decks. 
         Your task is to extract and enrich startup data from PDF content. Follow these steps:
@@ -423,10 +473,11 @@ class PDFAgentExecutor:
         # Create the agent
         self.agent = create_openai_tools_agent(self.llm, self.tools, prompt)
         
-        # Create the agent executor
+        # Create the agent executor with memory
         self.agent_executor = AgentExecutor(
             agent=self.agent,
             tools=self.tools,
+            memory=self.memory,
             verbose=True,
             handle_parsing_errors=True
         )
