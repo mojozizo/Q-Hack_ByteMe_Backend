@@ -23,4 +23,4 @@ Bonus points for stretch goals like founder track record analysis, real-time dem
 docker build -t q-backend .
 
 # Run
-docker run -v $(pwd)/:/app/ q-backend
+docker run -v $(pwd)/:/app/ -p 8000:8000 q-backend
