@@ -43,3 +43,32 @@ class Category(BaseModel):
     # Location data (keeping as string since countries aren't meaningfully represented as integers)
     country_of_headquarters: Optional[str] = Field(None, description="Country of headquarters")
 
+class CategoryToSearch(BaseModel):
+    """
+    Pydantic model for additional startup metrics for search
+    """
+    # Financial metrics
+    churn_rate: Optional[int] = Field(None, description="Churn Rate (users, monthly)")
+    net_revenue_retention: Optional[int] = Field(None, description="Net Revenue Retention (NRR)")
+    customer_payback_period: Optional[int] = Field(None, description="Customer Payback Period")
+    dau_mau_ratio: Optional[int] = Field(None, description="DAU / MAU Ratio")
+    product_stickiness: Optional[int] = Field(None, description="Product Stickiness")
+    burn_multiple: Optional[int] = Field(None, description="Burn Multiple (cash burn/net new revenue)")
+    time_to_value: Optional[int] = Field(None, description="Time to Value (TTV)")
+    revenue_per_fte: Optional[int] = Field(None, description="Revenue per FTE")
+    valuation_arr_multiple: Optional[int] = Field(None, description="Valuation / ARR Multiple")
+    top_3_revenue_share: Optional[int] = Field(None, description="Top-3 Revenue Share")
+    market_coverage: Optional[int] = Field(None, description="Market Coverage (Revenue / SAM)")
+    employee_count: Optional[int] = Field(None, description="Number of employees")
+    
+    # Scale metrics (1-5)
+    business_model_scalability: Optional[int] = Field(None, description="Scalability of the business model and sales process (scale 1-5)")
+    hiring_plan_alignment: Optional[int] = Field(None, description="Alignment of hiring plan and business goals (scale 1-5)")
+    
+    # Boolean fields (represented as bool)
+    regulatory_risks: Optional[bool] = Field(None, description="Regulatory Risks (yes/no)")
+    trend_risks: Optional[bool] = Field(None, description="Trend Risks (yes/no)")
+    litigation_ip_disputes: Optional[bool] = Field(None, description="Litigation or IP disputes (yes/no)")
+    founder_sanction_free: Optional[bool] = Field(None, description="Founder is sanction free (yes/no)")
+    company_sanction_free: Optional[bool] = Field(None, description="Company is sanction free (yes/no)")
+
