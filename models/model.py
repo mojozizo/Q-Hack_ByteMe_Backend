@@ -42,3 +42,4 @@ class Category(BaseModel):
     
     # Location data (keeping as string since countries aren't meaningfully represented as integers)
     country_of_headquarters: Optional[str] = Field(None, description="Country of headquarters")
+
