@@ -1,4 +1,4 @@
-from fastapi import UploadFile, File, APIRouter, HTTPException, Path
+from fastapi import UploadFile, File, APIRouter, HTTPException, Path, Query
 from starlette.responses import JSONResponse
 
 from etl.extract.extractor_handler import ExtractorHandler
@@ -7,7 +7,11 @@ from etl.util.file_util import create_or_get_upload_folder
 router = APIRouter()
 
 @router.post("/upload-pdf/")
-async def upload_pdf(file: UploadFile = File(...), query: str = None):
+async def upload_pdf(
+    file: UploadFile = File(...), 
+    query: str = None,
+    use_agent_workflow: bool = Query(False, description="Whether to use LangChain agent workflow")
+):
     try:
         # Validate file type
         if not file.filename.endswith('.pdf'):
@@ -20,7 +24,10 @@ async def upload_pdf(file: UploadFile = File(...), query: str = None):
         
         try:
             # Process the file and get the extracted data
-            extracted_data = ExtractorHandler.get_extractor("pdf").extract(file, query)
+            extracted_data = ExtractorHandler.get_extractor(
+                "pdf", 
+                use_agent_workflow=use_agent_workflow
+            ).extract(file, query)
             
             return JSONResponse(
                 status_code=200,
@@ -28,7 +35,8 @@ async def upload_pdf(file: UploadFile = File(...), query: str = None):
                     "message": "File uploaded and processed successfully",
                     "filename": file.filename,
                     "file_path": str(file_path),
-                    "processed_info": extracted_data
+                    "processed_info": extracted_data,
+                    "used_agent_workflow": use_agent_workflow
                 }
             )
         except Exception as processing_error:

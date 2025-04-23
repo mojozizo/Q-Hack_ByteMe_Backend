@@ -233,3 +233,44 @@ def enrich_model_from_web(
                 setattr(model_instance, field_name, value)
     
     return model_instance
+
+def enrich_category_to_search(
+    company_name: str,
+    existing_category_model: Optional[BaseModel] = None,
+    web_search_util = None
+) -> 'CategoryToSearch':
+    """
+    Creates and populates a CategoryToSearch model instance with data from web sources.
+    
+    Args:
+        company_name: The name of the company to search for
+        existing_category_model: Optional existing Category model with company info
+        web_search_util: The WebSearchUtils class to use (optional)
+        
+    Returns:
+        A populated CategoryToSearch model instance
+    """
+    # Import required modules
+    from models.model import CategoryToSearch
+    
+    if web_search_util is None:
+        from etl.util.web_search_util import WebSearchUtils
+        web_search_util = WebSearchUtils
+    
+    # Create an empty model
+    category_to_search = CategoryToSearch()
+    
+    try:
+        # Get advanced metrics data
+        advanced_data = web_search_util.search_category_to_search_data(company_name)
+        
+        # Update fields in the model from the search results
+        for field_name, value in advanced_data.items():
+            if hasattr(category_to_search, field_name):
+                setattr(category_to_search, field_name, value)
+        
+        return category_to_search
+        
+    except Exception as e:
+        print(f"Error enriching CategoryToSearch: {str(e)}")
+        return category_to_search

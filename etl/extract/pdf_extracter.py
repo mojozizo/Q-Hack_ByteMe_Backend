@@ -5,6 +5,7 @@ import re
 import time
 from pathlib import Path as PathLib
 from typing import Optional, Type, Dict, Any, Union
+import PyPDF2
 
 from fastapi import Path
 from openai import OpenAI
@@ -12,8 +13,9 @@ from pydantic import BaseModel
 from etl.extract.abstract_extracter import AbstractExtracter
 from etl.util.file_util import create_or_get_upload_folder
 from etl.util.web_search_util import WebSearchUtils
-from etl.util.model_util import discover_nested_models, generate_extraction_prompt, generate_assistant_instructions, enrich_model_from_web
-from models.model import Category, CompanyInfo
+from etl.util.model_util import discover_nested_models, generate_extraction_prompt, generate_assistant_instructions, enrich_model_from_web, enrich_category_to_search
+from models.model import Category, CompanyInfo, CategoryToSearch
+from etl.agent import PDFAgentExecutor
 
 # Initialize OpenAI client
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
@@ -22,7 +24,8 @@ class PDFExtracter(AbstractExtracter):
     """Extracts structured data from PDF pitch decks using OpenAI."""
 
     def __init__(self, model_class: Type[BaseModel] = Category, default_prompt: Optional[str] = None, 
-                 enable_web_enrichment: bool = True, assistant_model: str = "gpt-4o"):
+                 enable_web_enrichment: bool = True, assistant_model: str = "gpt-4o",
+                 use_agent_workflow: bool = False):
         """
         Initialize the PDFExtracter with customizable parameters.
         
@@ -31,26 +34,33 @@ class PDFExtracter(AbstractExtracter):
             default_prompt: A custom default prompt to use for extraction (default: built-in prompt)
             enable_web_enrichment: Whether to enrich data from web sources (default: True)
             assistant_model: The OpenAI model to use for analysis (default: gpt-4o)
+            use_agent_workflow: Whether to use the LangChain agent workflow (default: False)
         """
         super().__init__()
         self.model_class = model_class
         self.default_prompt = default_prompt
         self.enable_web_enrichment = enable_web_enrichment
         self.assistant_model = assistant_model
+        self.use_agent_workflow = use_agent_workflow
         # Use the utility function to discover nested models
         self.nested_fields = discover_nested_models(model_class)
+        
+        # Initialize agent executor if using agent workflow
+        if self.use_agent_workflow:
+            self.agent_executor = PDFAgentExecutor(model_name=assistant_model)
 
     def extract(self, file: Path, query: str = None) -> str:
         """
         Extracts structured information from a PDF file based on the configured model.
         If information is missing from the PDF and web enrichment is enabled, searches the web to fill in gaps.
+        Also enriches with additional CategoryToSearch metrics from web sources.
         
         Args:
             file: The uploaded PDF file
             query: Custom query for analysis (optional)
             
         Returns:
-            str: Structured JSON response containing extracted data
+            str: Structured JSON response containing extracted data and additional search metrics
         """
         # Save the uploaded file
         file_path = create_or_get_upload_folder() / file.filename
@@ -58,35 +68,128 @@ class PDFExtracter(AbstractExtracter):
             shutil.copyfileobj(file.file, buffer)
             
         try:
-            # First, process the PDF and get structured output
-            pdf_data_json = self._analyze_pdf(file_path, query)
-            
-            # Check if we got a valid response
-            if not pdf_data_json or not pdf_data_json.strip():
-                # Return a valid but empty JSON if the extraction failed
-                print("Warning: Empty response from PDF analysis")
-                empty_data = self.model_class().model_dump()
-                return json.dumps(empty_data, indent=2)
-            
-            try:
-                # Parse the JSON string into a Python dict
-                pdf_data = json.loads(pdf_data_json)
+            # Choose extraction method based on configuration
+            if self.use_agent_workflow:
+                result = self._extract_with_agent(file_path, query)
+            else:
+                # Use existing implementation
+                result = self._extract_with_openai_assistant(file_path, query)
                 
-                # Enrich with web data if enabled
-                if self.enable_web_enrichment:
-                    enriched_data = self._enrich_with_web_data(pdf_data)
-                    return json.dumps(enriched_data, indent=2)
-                else:
-                    return pdf_data_json
-            except json.JSONDecodeError as e:
-                print(f"Error parsing PDF analysis result as JSON: {str(e)}")
-                print(f"Raw response: {pdf_data_json}")
-                
-                # Return a valid but empty JSON if the parsing failed
-                empty_data = self.model_class().model_dump()
-                return json.dumps(empty_data, indent=2)
+            return json.dumps(result, indent=2)
+            
         finally:
             file.file.close()
+    
+    def _extract_with_agent(self, file_path: PathLib, query: str = None) -> Dict[str, Any]:
+        """
+        Extracts data from a PDF using the LangChain agent workflow.
+        
+        Args:
+            file_path: Path to the PDF file
+            query: Custom query for analysis (optional)
+            
+        Returns:
+            Dict: Structured data containing main_category and search_category
+        """
+        try:
+            # Extract text from PDF
+            pdf_text = self._extract_text_from_pdf(file_path)
+            
+            # Use the agent executor to extract data
+            result = self.agent_executor.extract_from_pdf_text(
+                pdf_text=pdf_text, 
+                enable_web_enrichment=self.enable_web_enrichment
+            )
+            
+            return result
+            
+        except Exception as e:
+            print(f"Error extracting with agent: {str(e)}")
+            # Return a valid but empty result if extraction fails
+            return {
+                "main_category": self.model_class().model_dump(),
+                "search_category": CategoryToSearch().model_dump()
+            }
+    
+    def _extract_text_from_pdf(self, file_path: PathLib) -> str:
+        """
+        Extracts text content from a PDF file.
+        
+        Args:
+            file_path: Path to the PDF file
+            
+        Returns:
+            str: Extracted text content
+        """
+        text = ""
+        try:
+            with open(file_path, "rb") as pdf_file:
+                pdf_reader = PyPDF2.PdfReader(pdf_file)
+                for page_num in range(len(pdf_reader.pages)):
+                    page = pdf_reader.pages[page_num]
+                    text += page.extract_text() + "\n\n"
+            return text
+        except Exception as e:
+            print(f"Error extracting text from PDF: {str(e)}")
+            return ""
+    
+    def _extract_with_openai_assistant(self, file_path: PathLib, query: str = None) -> Dict[str, Any]:
+        """
+        Extracts data using the original OpenAI Assistant-based implementation.
+        
+        Args:
+            file_path: Path to the PDF file
+            query: Custom query for analysis (optional)
+            
+        Returns:
+            Dict: Structured data containing main_category and search_category
+        """
+        # First, process the PDF and get structured output
+        pdf_data_json = self._analyze_pdf(file_path, query)
+        
+        # Check if we got a valid response
+        if not pdf_data_json or not pdf_data_json.strip():
+            # Return a valid but empty JSON if the extraction failed
+            print("Warning: Empty response from PDF analysis")
+            empty_data = self.model_class().model_dump()
+            return {"main_category": empty_data, "search_category": CategoryToSearch().model_dump()}
+        
+        try:
+            # Parse the JSON string into a Python dict
+            pdf_data = json.loads(pdf_data_json)
+            
+            # Enrich with web data if enabled
+            if self.enable_web_enrichment:
+                enriched_data = self._enrich_with_web_data(pdf_data)
+                
+                # Also get additional CategoryToSearch data
+                company_name = None
+                if self.model_class == Category and "company_info" in enriched_data:
+                    company_name = enriched_data.get("company_info", {}).get("company_name")
+                
+                search_category_data = {}
+                if company_name:
+                    search_category = enrich_category_to_search(company_name)
+                    search_category_data = search_category.model_dump()
+                
+                # Combine both data sets in the final result
+                return {
+                    "main_category": enriched_data,
+                    "search_category": search_category_data
+                }
+            else:
+                # Create a basic result with just the PDF data
+                return {
+                    "main_category": pdf_data,
+                    "search_category": CategoryToSearch().model_dump()
+                }
+        except json.JSONDecodeError as e:
+            print(f"Error parsing PDF analysis result as JSON: {str(e)}")
+            print(f"Raw response: {pdf_data_json}")
+            
+            # Return a valid but empty JSON if the parsing failed
+            empty_data = self.model_class().model_dump()
+            return {"main_category": empty_data, "search_category": CategoryToSearch().model_dump()}
 
     def _enrich_with_web_data(self, pdf_data: dict) -> dict:
         """

@@ -232,3 +232,114 @@ class WebSearchUtils:
         except Exception as e:
             print(f"Company info search failed: {str(e)}")
             return {}
+    
+    @staticmethod
+    def search_category_to_search_data(company_name: str) -> Dict[str, Any]:
+        """
+        Search for additional startup metrics defined in the CategoryToSearch model using a combination
+        of web search, BrightData, and News API.
+        
+        Args:
+            company_name: Company name to search for
+            
+        Returns:
+            Dictionary containing CategoryToSearch metrics
+        """
+        # First collect data from multiple sources
+        web_data = {}
+        news_data = {}
+        linkedin_data = {}
+        
+        # Get news data
+        try:
+            news_data = WebSearchUtils.search_news(company_name)
+        except Exception as e:
+            print(f"News API search failed: {str(e)}")
+        
+        # Try to get LinkedIn company page
+        try:
+            # First try to get the company website
+            company_info = WebSearchUtils.search_company_info(company_name)
+            if "website_link" in company_info:
+                # Extract social profiles to find LinkedIn
+                social_data = WebSearchUtils.extract_social_profiles(company_info["website_link"])
+                if "linkedin" in social_data and social_data["linkedin"]:
+                    # Use LinkedIn profile URL to get data
+                    linkedin_data = WebSearchUtils.search_linkedin(profile_url=social_data["linkedin"])
+        except Exception as e:
+            print(f"LinkedIn company search failed: {str(e)}")
+        
+        # Create prompt for GPT-4o with all collected data as context
+        advanced_metrics_prompt = f"""
+        I need detailed metrics for the company {company_name}. 
+        
+        Here's what I've collected about the company so far:
+        
+        News Data: {json.dumps(news_data) if news_data else "No news data available"}
+        
+        LinkedIn Data: {json.dumps(linkedin_data) if linkedin_data else "No LinkedIn data available"}
+        
+        Based on this information and your knowledge, please extract or estimate the following metrics:
+        
+        1. Churn Rate (percentage of users lost monthly)
+        2. Net Revenue Retention (NRR)
+        3. Customer Payback Period (in months)
+        4. DAU/MAU Ratio (as percentage)
+        5. Product Stickiness (scale 1-5)
+        6. Burn Multiple (cash burn / net new revenue)
+        7. Time to Value (TTV) in days
+        8. Revenue per FTE
+        9. Valuation / ARR Multiple
+        10. Top-3 Revenue Share (percentage from top 3 customers)
+        11. Market Coverage (Revenue / SAM) as percentage
+        12. Employee Count
+        13. Business Model Scalability (scale 1-5)
+        14. Hiring Plan Alignment (scale 1-5)
+        15. Any Regulatory Risks (true/false)
+        16. Any Trend Risks (true/false)
+        17. Any Litigation or IP Disputes (true/false)
+        18. Is Founder Sanction Free (true/false)
+        19. Is Company Sanction Free (true/false)
+        
+        Format your response as a JSON object with these exact field names:
+        - churn_rate (integer percentage)
+        - net_revenue_retention (integer percentage)
+        - customer_payback_period (integer months)
+        - dau_mau_ratio (integer percentage)
+        - product_stickiness (integer 1-5)
+        - burn_multiple (integer)
+        - time_to_value (integer days)
+        - revenue_per_fte (integer USD)
+        - valuation_arr_multiple (integer)
+        - top_3_revenue_share (integer percentage)
+        - market_coverage (integer percentage)
+        - employee_count (integer)
+        - business_model_scalability (integer 1-5)
+        - hiring_plan_alignment (integer 1-5)
+        - regulatory_risks (boolean)
+        - trend_risks (boolean)
+        - litigation_ip_disputes (boolean)
+        - founder_sanction_free (boolean)
+        - company_sanction_free (boolean)
+        
+        For numeric values, convert to integers (round as needed).
+        Only include fields where you have reasonable confidence. Omit fields where you're highly uncertain.
+        """
+        
+        try:
+            # Use GPT-4o to generate the metrics
+            response = client.chat.completions.create(
+                model="gpt-4o",
+                messages=[
+                    {"role": "system", "content": "You are a startup analyst with expertise in SaaS and tech metrics. You have access to various data sources and can make reasonable estimations based on available information."},
+                    {"role": "user", "content": advanced_metrics_prompt}
+                ],
+                response_format={"type": "json_object"}
+            )
+            
+            # Parse and return the result
+            result = json.loads(response.choices[0].message.content)
+            return result
+        except Exception as e:
+            print(f"CategoryToSearch metrics search failed: {str(e)}")
+            return {}
