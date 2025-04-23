@@ -1,11 +1,8 @@
 from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-
-from api.controller import router
-
-# Load environment variables
 load_dotenv()
+from api.controller import router
 
 app = FastAPI(title="ByteMe - ACE Alternative")
 
