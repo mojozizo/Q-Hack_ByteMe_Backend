@@ -2,12 +2,17 @@ import os
 import shutil
 import json
 import re
+import time
 from pathlib import Path as PathLib
+from typing import Optional, Type, Dict, Any, Union
 
 from fastapi import Path
 from openai import OpenAI
+from pydantic import BaseModel
 from etl.extract.abstract_extracter import AbstractExtracter
 from etl.util.file_util import create_or_get_upload_folder
+from etl.util.web_search_util import WebSearchUtils
+from etl.util.model_util import discover_nested_models, generate_extraction_prompt, generate_assistant_instructions, enrich_model_from_web
 from models.model import Category, CompanyInfo
 
 # Initialize OpenAI client
@@ -16,19 +21,36 @@ client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 class PDFExtracter(AbstractExtracter):
     """Extracts structured data from PDF pitch decks using OpenAI."""
 
-    def __init__(self):
+    def __init__(self, model_class: Type[BaseModel] = Category, default_prompt: Optional[str] = None, 
+                 enable_web_enrichment: bool = True, assistant_model: str = "gpt-4o"):
+        """
+        Initialize the PDFExtracter with customizable parameters.
+        
+        Args:
+            model_class: The Pydantic model class to use for data structure (default: Category)
+            default_prompt: A custom default prompt to use for extraction (default: built-in prompt)
+            enable_web_enrichment: Whether to enrich data from web sources (default: True)
+            assistant_model: The OpenAI model to use for analysis (default: gpt-4o)
+        """
         super().__init__()
+        self.model_class = model_class
+        self.default_prompt = default_prompt
+        self.enable_web_enrichment = enable_web_enrichment
+        self.assistant_model = assistant_model
+        # Use the utility function to discover nested models
+        self.nested_fields = discover_nested_models(model_class)
 
     def extract(self, file: Path, query: str = None) -> str:
         """
-        Extracts structured information from a PDF pitch deck based on the Category model.
+        Extracts structured information from a PDF file based on the configured model.
+        If information is missing from the PDF and web enrichment is enabled, searches the web to fill in gaps.
         
         Args:
             file: The uploaded PDF file
             query: Custom query for analysis (optional)
             
         Returns:
-            str: Structured JSON response containing only Category model fields
+            str: Structured JSON response containing extracted data
         """
         # Save the uploaded file
         file_path = create_or_get_upload_folder() / file.filename
@@ -36,19 +58,213 @@ class PDFExtracter(AbstractExtracter):
             shutil.copyfileobj(file.file, buffer)
             
         try:
-            # Process the PDF and get structured output
-            return self._analyze_pdf(file_path, query)
+            # First, process the PDF and get structured output
+            pdf_data_json = self._analyze_pdf(file_path, query)
+            
+            # Check if we got a valid response
+            if not pdf_data_json or not pdf_data_json.strip():
+                # Return a valid but empty JSON if the extraction failed
+                print("Warning: Empty response from PDF analysis")
+                empty_data = self.model_class().model_dump()
+                return json.dumps(empty_data, indent=2)
+            
+            try:
+                # Parse the JSON string into a Python dict
+                pdf_data = json.loads(pdf_data_json)
+                
+                # Enrich with web data if enabled
+                if self.enable_web_enrichment:
+                    enriched_data = self._enrich_with_web_data(pdf_data)
+                    return json.dumps(enriched_data, indent=2)
+                else:
+                    return pdf_data_json
+            except json.JSONDecodeError as e:
+                print(f"Error parsing PDF analysis result as JSON: {str(e)}")
+                print(f"Raw response: {pdf_data_json}")
+                
+                # Return a valid but empty JSON if the parsing failed
+                empty_data = self.model_class().model_dump()
+                return json.dumps(empty_data, indent=2)
         finally:
             file.file.close()
 
-    def _analyze_pdf(self, pdf_path: PathLib, query: str = None) -> str:
-        """Analyzes a PDF using OpenAI and returns structured data matching the Category model."""
-        # Get the schema for structured output
-        schema = Category.model_json_schema()
-        company_info_schema = CompanyInfo.model_json_schema()
+    def _enrich_with_web_data(self, pdf_data: dict) -> dict:
+        """
+        Enriches PDF-extracted data with information from web sources.
+        Looks for missing fields in the PDF data and attempts to fill them.
         
-        # Use the default extraction prompt if none provided
-        prompt = query if query else self._build_extraction_prompt()
+        Args:
+            pdf_data: The data extracted from the PDF
+            
+        Returns:
+            dict: Enriched data combining PDF and web sources
+        """
+        # If using the default Category model, use existing enrichment logic
+        if self.model_class == Category:
+            return self._enrich_category_data(pdf_data)
+        
+        # For custom models, use our generic utility function
+        try:
+            # Validate the data with the model
+            model_instance = self.model_class(**pdf_data)
+            
+            # Use the utility function to enrich the model
+            enriched_model = enrich_model_from_web(
+                model_instance=model_instance,
+                web_search_util=WebSearchUtils
+            )
+            
+            return enriched_model.model_dump()
+        except Exception as e:
+            print(f"Error enriching custom model data: {str(e)}")
+            return pdf_data
+    
+    def _enrich_category_data(self, pdf_data: dict) -> dict:
+        # Keep original implementation for backward compatibility
+        # Create a validated Category object from PDF data
+        try:
+            category = Category(**pdf_data)
+        except Exception as e:
+            print(f"Error validating PDF data: {str(e)}")
+            category = Category()
+        
+        # Get company info or create empty object if missing
+        if not category.company_info:
+            category.company_info = CompanyInfo()
+        company_name = category.company_info.company_name
+        
+        if company_name:
+            print(f"Enriching data for company: {company_name}")
+            
+            # If we have a website but missing company info fields, extract social profiles
+            if category.company_info.website_link and not category.company_info.linkedin_profile_ceo:
+                try:
+                    social_profiles = WebSearchUtils.extract_social_profiles(category.company_info.website_link)
+                    
+                    # Update CEO LinkedIn profile if found
+                    if "ceo_linkedin" in social_profiles and social_profiles["ceo_linkedin"]:
+                        category.company_info.linkedin_profile_ceo = social_profiles["ceo_linkedin"]
+                except Exception as e:
+                    print(f"Social profile extraction failed: {str(e)}")
+            
+            # If we're missing basic company info, search for it
+            missing_company_info = (
+                not category.company_info.year_of_founding or 
+                not category.company_info.location_of_headquarters or
+                not category.company_info.industry or
+                not category.company_info.business_model
+            )
+            
+            if missing_company_info:
+                try:
+                    company_data = WebSearchUtils.search_company_info(company_name)
+                    
+                    # Update missing company info fields
+                    if "year_of_founding" in company_data and not category.company_info.year_of_founding:
+                        category.company_info.year_of_founding = company_data["year_of_founding"]
+                    
+                    if "location_of_headquarters" in company_data and not category.company_info.location_of_headquarters:
+                        category.company_info.location_of_headquarters = company_data["location_of_headquarters"]
+                    
+                    if "industry" in company_data and not category.company_info.industry:
+                        category.company_info.industry = company_data["industry"]
+                    
+                    if "business_model" in company_data and not category.company_info.business_model:
+                        category.company_info.business_model = company_data["business_model"]
+                    
+                    if "employees" in company_data and not category.company_info.employees:
+                        category.company_info.employees = company_data["employees"]
+                    
+                    if "website_link" in company_data and not category.company_info.website_link:
+                        category.company_info.website_link = company_data["website_link"]
+                    
+                    if "one_sentence_pitch" in company_data and not category.company_info.one_sentence_pitch:
+                        category.company_info.one_sentence_pitch = company_data["one_sentence_pitch"]
+                except Exception as e:
+                    print(f"Company info search failed: {str(e)}")
+            
+            # Try to get LinkedIn data
+            if category.company_info.linkedin_profile_ceo:
+                try:
+                    # Extract name from LinkedIn URL if possible
+                    ceo_first_name = None
+                    ceo_last_name = None
+                    linkedin_url = category.company_info.linkedin_profile_ceo
+                    
+                    if "/" in linkedin_url:
+                        profile_name = linkedin_url.split("/")[-1]
+                        if profile_name:
+                            name_parts = profile_name.split("-")
+                            if len(name_parts) >= 2:
+                                ceo_first_name = name_parts[0]
+                                ceo_last_name = " ".join(name_parts[1:])
+                    
+                    # Search LinkedIn using our utility
+                    linkedin_data = WebSearchUtils.search_linkedin(
+                        first_name=ceo_first_name,
+                        last_name=ceo_last_name,
+                        company_name=company_name,
+                        profile_url=linkedin_url
+                    )
+                    
+                    # Process LinkedIn data to extract relevant information
+                    # This would be company-specific based on LinkedIn data structure
+                except Exception as e:
+                    print(f"LinkedIn data processing failed: {str(e)}")
+            
+            # Try to get news data 
+            try:
+                news_data = WebSearchUtils.search_news(company_name)
+                
+                # Process news data if needed
+                # You could extract recent funding news, announcements, etc.
+            except Exception as e:
+                print(f"News data processing failed: {str(e)}")
+            
+            # Get missing financial metrics
+            missing_financials = (
+                not category.annual_recurring_revenue or
+                not category.monthly_recurring_revenue or
+                not category.customer_acquisition_cost or
+                not category.customer_lifetime_value or
+                not category.gross_margin or
+                not category.burn_rate or
+                not category.runway
+            )
+            
+            if missing_financials:
+                try:
+                    financial_data = WebSearchUtils.search_financial_data(company_name)
+                    
+                    # Map financial data to category model
+                    financial_fields = [
+                        "annual_recurring_revenue", "monthly_recurring_revenue",
+                        "customer_acquisition_cost", "customer_lifetime_value",
+                        "cltv_cac_ratio", "gross_margin", "revenue_growth_rate_yoy",
+                        "revenue_growth_rate_mom", "monthly_active_users",
+                        "sales_cycle_length", "burn_rate", "runway"
+                    ]
+                    
+                    # Update any missing fields that were found
+                    for field in financial_fields:
+                        if field in financial_data and not getattr(category, field, None):
+                            setattr(category, field, financial_data[field])
+                except Exception as e:
+                    print(f"Financial data search failed: {str(e)}")
+        
+        # Return the enriched data as a dict
+        return category.model_dump()
+
+    def _analyze_pdf(self, pdf_path: PathLib, query: str = None) -> str:
+        """Analyzes a PDF using OpenAI and returns structured data matching the model class."""
+        # Use the provided query, default_prompt if set, or build a generic prompt
+        if query:
+            prompt = query
+        elif self.default_prompt:
+            prompt = self.default_prompt
+        else:
+            # Use the utility function to generate a prompt
+            prompt = generate_extraction_prompt(self.model_class)
         
         # Use assistants API to handle PDF upload and analysis
         with open(pdf_path, "rb") as file:
@@ -58,28 +274,14 @@ class PDFExtracter(AbstractExtracter):
                 purpose="assistants"
             )
             
-            # Create assistant to extract Category model fields
+            # Generate instructions using the utility function
+            instructions = generate_assistant_instructions(self.model_class)
+            
+            # Create assistant to extract data based on the model
             assistant = client.beta.assistants.create(
-                name="PDF Analyzer",
-                instructions=f"""You are a specialized financial analyst for startups. 
-                Analyze the pitch deck and extract ONLY the information specified in this schema:
-                
-                Category Schema:
-                {json.dumps(schema, indent=2)}
-                
-                Company Info Schema (to be nested within Category):
-                {json.dumps(company_info_schema, indent=2)}
-                
-                Important guidelines:
-                1. All numeric values should be integers only (e.g., 15.5% becomes 16)
-                2. For boolean values, use 1 for yes/true and 0 for no/false
-                3. For scale metrics (like market_competitiveness), use values from 1-5
-                4. Company information should be included in the nested "company_info" field
-                5. Only include fields defined in the schema - do not add extra fields
-                6. Return ONLY valid JSON matching the schema exactly
-                7. Do not include any narrative analysis or additional text
-                """,
-                model="gpt-4o",
+                name="Document Analyzer",
+                instructions=instructions,
+                model=self.assistant_model,
                 tools=[{"type": "file_search"}]
             )
             
@@ -115,6 +317,7 @@ class PDFExtracter(AbstractExtracter):
                     break
                 elif run_status.status in ["failed", "cancelled", "expired"]:
                     raise Exception(f"Analysis failed: {run_status.status}")
+                time.sleep(1)  # Added sleep to prevent tight polling
                 
             # Get the response
             messages = client.beta.threads.messages.list(
@@ -142,11 +345,11 @@ class PDFExtracter(AbstractExtracter):
                 else:
                     json_str = response_text
                 
-                # Parse and validate with the Category model
+                # Parse and validate with the model
                 parsed = json.loads(json_str)
-                validated_data = Category(**parsed)
+                validated_data = self.model_class(**parsed)
                 
-                # Return only the Category model data as JSON
+                # Return the validated data as JSON
                 return json.dumps(validated_data.model_dump(), indent=2)
             except Exception as e:
                 # Return the raw response if parsing fails
@@ -154,6 +357,19 @@ class PDFExtracter(AbstractExtracter):
                 return response_text
                 
     def _build_extraction_prompt(self) -> str:
+        """
+        Creates a focused prompt to extract data from the document based on the model.
+        If using the Category model, returns the specialized prompt, otherwise generates
+        a generic prompt based on the model's fields.
+        """
+        # If using the default Category model, use the existing specialized prompt
+        if self.model_class == Category:
+            return self._build_category_extraction_prompt()
+        
+        # For other models, use the utility function
+        return generate_extraction_prompt(self.model_class)
+                
+    def _build_category_extraction_prompt(self) -> str:
         """Creates a focused prompt to extract only Category model fields from the pitch deck."""
         return """Extract the following specific metrics from this pitch deck:
 

@@ -17,22 +17,46 @@ async def upload_pdf(file: UploadFile = File(...), query: str = None):
             )
 
         file_path = create_or_get_upload_folder() / file.filename
-
-        return JSONResponse(
-            status_code=200,
-            content={
-                "message": "File uploaded and processed successfully",
-                "filename": file.filename,
-                "file_path": str(file_path),
-                "processed_info": ExtractorHandler.get_extractor("pdf").extract(file, query)
-            }
-        )
+        
+        try:
+            # Process the file and get the extracted data
+            extracted_data = ExtractorHandler.get_extractor("pdf").extract(file, query)
+            
+            return JSONResponse(
+                status_code=200,
+                content={
+                    "message": "File uploaded and processed successfully",
+                    "filename": file.filename,
+                    "file_path": str(file_path),
+                    "processed_info": extracted_data
+                }
+            )
+        except Exception as processing_error:
+            # Log detailed error for debugging
+            import traceback
+            print(f"PDF processing error: {str(processing_error)}")
+            print(traceback.format_exc())
+            
+            return JSONResponse(
+                status_code=500,
+                content={
+                    "message": f"Error processing PDF content: {str(processing_error)}",
+                    "filename": file.filename,
+                    "file_path": str(file_path)
+                }
+            )
     except Exception as e:
+        # Handle general exceptions
+        import traceback
+        print(f"General error: {str(e)}")
+        print(traceback.format_exc())
+        
         return JSONResponse(
             status_code=500,
-            content={"message": f"Error processing file: {str(e)}"}
+            content={"message": f"Server error: {str(e)}"}
         )
     finally:
+        # Always close the file
         file.file.close()
 
 
