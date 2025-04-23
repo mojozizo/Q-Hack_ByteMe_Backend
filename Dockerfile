@@ -10,6 +10,4 @@ COPY . .
 
 EXPOSE 8000
 
-ENV OPENAI_API_KEY=your_openai_api_key
-
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
