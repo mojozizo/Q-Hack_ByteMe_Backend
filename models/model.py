@@ -1,109 +1,74 @@
 from pydantic import BaseModel, Field
-from typing import List, Optional, Union
-
-class HardFundCriteria(BaseModel):
-    annual_recurring_revenue: float = Field(..., description="Annual Recurring Revenue (ARR) in USD")
-    required_funding_amount: float = Field(..., description="Required Funding Amounts in USD")
-    industry: List[str] = Field(..., description="Industry (Multi Select)")
-    innovativeness: bool = Field(..., description="Innovativeness")
-    age_of_company: float = Field(..., description="Age of company in years")
-
-class TeamCriteria(BaseModel):
-    experience_in_branches: bool = Field(..., description="Experience in Branches")
-    complementary_skills: bool = Field(..., description="Complementary Skills/Background")
-    ambition_motivation: float = Field(..., description="Ambition / Motivation (1-10)")
-    full_time_commitment: bool = Field(..., description="Full-time commitment")
-    financial_commitment: bool = Field(..., description="Financial commitment")
-    resilience: bool = Field(..., description="Resilience")
-    number_of_employees: int = Field(..., description="Number of employees")
-    number_of_cofounders: int = Field(..., description="Number of co-founders")
-    networking_score: float = Field(..., description="Networking Score (1-10)")
-    publicity: float = Field(..., description="Publicity (1-10)")
-    past_exits: bool = Field(..., description="Track record of past exits")
-    target_companies_universities: bool = Field(..., description="Target companies/universities in CV")
-    coachability: bool = Field(..., description="Coachability")
-
-class ProblemCriteria(BaseModel):
-    problem_pressing: bool = Field(..., description="Is the problem pressing and relevant?")
-    willingness_to_pay: bool = Field(..., description="Willingness to pay for solution?")
-    affected_people: int = Field(..., description="How many people are affected by the problem?")
-
-class SolutionCriteria(BaseModel):
-    solves_problem: bool = Field(..., description="Does the solution solve the problem?")
-    technically_works: bool = Field(..., description="Does the solution work technically?")
-    ip_protected: bool = Field(..., description="Is the solution IP protected?")
-    product_development: bool = Field(..., description="How far is the product developed?")
-    customer_accessibility: float = Field(..., description="How easily is the solution accessible (1-10)")
-    technical_scalability: float = Field(..., description="How scalable is the technical solution (1-10)")
-    time_to_value: int = Field(..., description="Time to Value in months")
-
-class TractionCriteria(BaseModel):
-    current_users: int = Field(..., description="How many users are using the solution")
-    stickiness: bool = Field(..., description="Stickiness of the solution")
-    customer_lifetime_value: float = Field(..., description="Customer Lifetime Value in USD")
-    conversion_rate: float = Field(..., description="Conversion Rates in %")
-
-class MarketCriteria(BaseModel):
-    usp_score: float = Field(..., description="USP in comparison to competitors (1-10)")
-    market_potential: bool = Field(..., description="Market potential / Market size")
-    market_competitiveness: bool = Field(..., description="Red or blue ocean market")
-    timing_score: float = Field(..., description="Timing score (1-10)")
-    current_workarounds: int = Field(..., description="Current workarounds by users")
-
-class BusinessModelCriteria(BaseModel):
-    business_scalability: float = Field(..., description="Business model scalability (1-10)")
-    margins: float = Field(..., description="Margins in %")
-    scaling_direction: float = Field(..., description="Horizontal or vertical scaling (1-10)")
-    network_effects: int = Field(..., description="Network effects in scaling")
-    sales_cycle_length: bool = Field(..., description="Sales Cycle Length")
-    customer_dependency: bool = Field(..., description="Risk of dependence on one customer")
-
-class FinancialsCriteria(BaseModel):
-    exit_possibilities: bool = Field(..., description="Exit-possibilities")
-    clean_cap_table: bool = Field(..., description="Clean cap table / Holding structure")
-    revenues: float = Field(..., description="Revenues in USD")
-    annual_recurring_revenues: float = Field(..., description="Annual Recurring Revenues in USD")
-    earnings: float = Field(..., description="Earnings in USD")
-    runway: int = Field(..., description="Runway without insolvency in months")
-    financial_plan_adequate: bool = Field(..., description="Is the financial plan adequate")
-    customer_acquisition_cost: float = Field(..., description="Customer Acquisition Costs in USD")
-    user_growth_rate: float = Field(..., description="Growth Rate (users) in %")
-    revenue_growth_rate: float = Field(..., description="Growth Rate (revenues) in USD")
-    monthly_cash_burn: float = Field(..., description="Cash Burn per Month in USD")
-    burn_multiple: float = Field(..., description="Burn Multiple in USD")
-    pending_cash_needs: float = Field(..., description="Pending short-term cash needs in USD")
-
-class RoadmapCriteria(BaseModel):
-    next_steps_adequate: bool = Field(..., description="Are the next steps adequate?")
-    hiring_plan_aligned: bool = Field(..., description="Does the hiring plan align with business goals?")
-
-class RisksCriteria(BaseModel):
-    regulatory_risks: bool = Field(..., description="Regulatory Risks")
-    trend_risks: bool = Field(..., description="Trend Risks")
-    esg_risks: bool = Field(..., description="ESG Risks")
-    shitstorm_risks: bool = Field(..., description="Shitstorm risks")
-    external_dependencies: bool = Field(..., description="Dependency on External APIs or Tech Platforms")
-    litigation_risks: bool = Field(..., description="Litigation or IP disputes")
-    sanctions_check: bool = Field(..., description="Sanctions check")
-    inflated_metrics: bool = Field(..., description="Inflated metrics / vanity metrics")
-    unrealistic_growth: bool = Field(..., description="Unrealistic growth assumptions")
-
-class RedFlagsCriteria(BaseModel):
-    no_go_industries: bool = Field(..., description="Potential No Go industries")
-    harmful_business_models: bool = Field(..., description="Harmful Business Models")
-    founder_scandals: bool = Field(..., description="Scandals around founders / the startup")
+from typing import Optional
 
 class Category(BaseModel):
-    hard_fund_criteria: HardFundCriteria
-    team: TeamCriteria
-    problem: ProblemCriteria
-    solution: SolutionCriteria
-    traction: TractionCriteria
-    market: MarketCriteria
-    business_model: BusinessModelCriteria
-    financials: FinancialsCriteria
-    roadmap: RoadmapCriteria
-    risks: RisksCriteria
-    red_flags: RedFlagsCriteria
+    """
+    Pydantic model for startup metrics with integer values
+    """
+    # Financial metrics
+    annual_recurring_revenue: Optional[int] = Field(None, description="Annual Recurring Revenue (ARR)")
+    monthly_recurring_revenue: Optional[int] = Field(None, description="Monthly Recurring Revenue (MRR) in USD")
+    customer_acquisition_cost: Optional[int] = Field(None, description="Customer Acquisition Cost (CAC)")
+    customer_lifetime_value: Optional[int] = Field(None, description="Customer Lifetime Value (CLTV)")
+    cltv_cac_ratio: Optional[int] = Field(None, description="CLTV/CAC Ratio")
+    gross_margin: Optional[int] = Field(None, description="Gross Margin")
+    revenue_growth_rate_yoy: Optional[int] = Field(None, description="Revenue Growth Rate (YoY)")
+    revenue_growth_rate_mom: Optional[int] = Field(None, description="Revenue Growth Rate (MoM)")
+    
+    # Operational metrics
+    sales_cycle_length: Optional[int] = Field(None, description="Sales Cycle Length")
+    monthly_active_users: Optional[int] = Field(None, description="Monthly Active Users (MAU)")
+    user_growth_rate_yoy: Optional[int] = Field(None, description="User Growth Rate (YoY)")
+    user_growth_rate_mom: Optional[int] = Field(None, description="User Growth Rate (MoM)")
+    conversion_rate: Optional[int] = Field(None, description="Conversion Rate (Free to Paid)")
+    
+    # Strategic metrics
+    pricing_strategy_maturity: Optional[int] = Field(None, description="Pricing Strategy Maturity")
+    burn_rate: Optional[int] = Field(None, description="Burn Rate (monthly)")
+    runway: Optional[int] = Field(None, description="Runway (in months)")
+    
+    # Boolean represented as int (0/1)
+    ip_protection: Optional[int] = Field(None, description="IP protection of solution (yes/no)")
+    
+    # Scale metrics
+    market_competitiveness: Optional[int] = Field(None, description="Competitiveness of the market (scale 1-5)")
+    market_timing: Optional[int] = Field(None, description="Good timing -> push through regulations/trends/… (scale 1-5)")
+    cap_table_cleanliness: Optional[int] = Field(None, description="Cleanliness of cap table / holding structure (scale 1-5, 5 is better)")
+    
+    # Founder-related metrics (represented as integers)
+    founder_industry_experience: Optional[int] = Field(None, description="Founder experience in industry")
+    founder_past_exits: Optional[int] = Field(None, description="Founder track record of past exits?")
+    founder_background: Optional[int] = Field(None, description="Founder background at target companies/universities")
+    
+    # Location data (keeping as string since countries aren't meaningfully represented as integers)
+    country_of_headquarters: Optional[str] = Field(None, description="Country of headquarters")
 
-detail_email = Email.model_json_schema()
+class CategoryToSearch(BaseModel):
+    """
+    Pydantic model for additional startup metrics for search
+    """
+    # Financial metrics
+    churn_rate: Optional[int] = Field(None, description="Churn Rate (users, monthly)")
+    net_revenue_retention: Optional[int] = Field(None, description="Net Revenue Retention (NRR)")
+    customer_payback_period: Optional[int] = Field(None, description="Customer Payback Period")
+    dau_mau_ratio: Optional[int] = Field(None, description="DAU / MAU Ratio")
+    product_stickiness: Optional[int] = Field(None, description="Product Stickiness")
+    burn_multiple: Optional[int] = Field(None, description="Burn Multiple (cash burn/net new revenue)")
+    time_to_value: Optional[int] = Field(None, description="Time to Value (TTV)")
+    revenue_per_fte: Optional[int] = Field(None, description="Revenue per FTE")
+    valuation_arr_multiple: Optional[int] = Field(None, description="Valuation / ARR Multiple")
+    top_3_revenue_share: Optional[int] = Field(None, description="Top-3 Revenue Share")
+    market_coverage: Optional[int] = Field(None, description="Market Coverage (Revenue / SAM)")
+    employee_count: Optional[int] = Field(None, description="Number of employees")
+    
+    # Scale metrics (1-5)
+    business_model_scalability: Optional[int] = Field(None, description="Scalability of the business model and sales process (scale 1-5)")
+    hiring_plan_alignment: Optional[int] = Field(None, description="Alignment of hiring plan and business goals (scale 1-5)")
+    
+    # Boolean fields (represented as bool)
+    regulatory_risks: Optional[bool] = Field(None, description="Regulatory Risks (yes/no)")
+    trend_risks: Optional[bool] = Field(None, description="Trend Risks (yes/no)")
+    litigation_ip_disputes: Optional[bool] = Field(None, description="Litigation or IP disputes (yes/no)")
+    founder_sanction_free: Optional[bool] = Field(None, description="Founder is sanction free (yes/no)")
+    company_sanction_free: Optional[bool] = Field(None, description="Company is sanction free (yes/no)")
+
