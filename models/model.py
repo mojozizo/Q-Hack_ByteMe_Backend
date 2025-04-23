@@ -1,10 +1,30 @@
 from pydantic import BaseModel, Field
 from typing import Optional
 
+class CompanyInfo(BaseModel):
+    """
+    Pydantic model for company information
+    """
+    company_name: Optional[str] = Field(None, description="Company Name")
+    official_company_name: Optional[str] = Field(None, description="Official Company Name")
+    year_of_founding: Optional[int] = Field(None, description="Year of Founding")
+    location_of_headquarters: Optional[str] = Field(None, description="Location of Headquarters")
+    business_model: Optional[str] = Field(None, description="Business Model")
+    industry: Optional[str] = Field(None, description="Industry")
+    required_funding_amount: Optional[int] = Field(None, description="Required Funding Amount")
+    employees: Optional[str] = Field(None, description="Number of Employees (range)")
+    website_link: Optional[str] = Field(None, description="Website Link")
+    one_sentence_pitch: Optional[str] = Field(None, description="One Sentence Pitch")
+    linkedin_profile_ceo: Optional[str] = Field(None, description="LinkedIn Profile of CEO")
+    pitch_deck_summary: Optional[str] = Field(None, description="Summary of pitch deck highlighting important aspects")
+
 class Category(BaseModel):
     """
     Pydantic model for startup metrics with integer values
     """
+    # Company information
+    company_info: Optional[CompanyInfo] = Field(None, description="Company Information")
+    
     # Financial metrics
     annual_recurring_revenue: Optional[int] = Field(None, description="Annual Recurring Revenue (ARR)")
     monthly_recurring_revenue: Optional[int] = Field(None, description="Monthly Recurring Revenue (MRR) in USD")

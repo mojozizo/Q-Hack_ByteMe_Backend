@@ -8,7 +8,7 @@ from fastapi import Path
 from openai import OpenAI
 from etl.extract.abstract_extracter import AbstractExtracter
 from etl.util.file_util import create_or_get_upload_folder
-from models.model import Category
+from models.model import Category, CompanyInfo
 
 # Initialize OpenAI client
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
@@ -45,6 +45,7 @@ class PDFExtracter(AbstractExtracter):
         """Analyzes a PDF using OpenAI and returns structured data matching the Category model."""
         # Get the schema for structured output
         schema = Category.model_json_schema()
+        company_info_schema = CompanyInfo.model_json_schema()
         
         # Use the default extraction prompt if none provided
         prompt = query if query else self._build_extraction_prompt()
@@ -62,15 +63,21 @@ class PDFExtracter(AbstractExtracter):
                 name="PDF Analyzer",
                 instructions=f"""You are a specialized financial analyst for startups. 
                 Analyze the pitch deck and extract ONLY the information specified in this schema:
+                
+                Category Schema:
                 {json.dumps(schema, indent=2)}
+                
+                Company Info Schema (to be nested within Category):
+                {json.dumps(company_info_schema, indent=2)}
                 
                 Important guidelines:
                 1. All numeric values should be integers only (e.g., 15.5% becomes 16)
                 2. For boolean values, use 1 for yes/true and 0 for no/false
                 3. For scale metrics (like market_competitiveness), use values from 1-5
-                4. Only include fields defined in the schema - do not add extra fields
-                5. Return ONLY valid JSON matching the schema exactly
-                6. Do not include any narrative analysis or additional text
+                4. Company information should be included in the nested "company_info" field
+                5. Only include fields defined in the schema - do not add extra fields
+                6. Return ONLY valid JSON matching the schema exactly
+                7. Do not include any narrative analysis or additional text
                 """,
                 model="gpt-4o",
                 tools=[{"type": "file_search"}]
@@ -150,7 +157,21 @@ class PDFExtracter(AbstractExtracter):
         """Creates a focused prompt to extract only Category model fields from the pitch deck."""
         return """Extract the following specific metrics from this pitch deck:
 
-1. FINANCIAL METRICS
+1. COMPANY INFORMATION
+   - Company Name as a string
+   - Official Company Name (if different) as a string
+   - Year of Founding as an integer
+   - Location of Headquarters as a string
+   - Business Model as a string
+   - Industry as a string
+   - Required Funding Amount as an integer in USD
+   - Number of Employees as a string (e.g., "10-50")
+   - Website Link as a string
+   - One Sentence Pitch as a string
+   - LinkedIn Profile of CEO as a string
+   - Detailed summary of the pitch deck highlighting all the important aspects of the company. 
+
+2. FINANCIAL METRICS
    - Annual Recurring Revenue (ARR) in USD as an integer
    - Monthly Recurring Revenue (MRR) in USD as an integer
    - Customer Acquisition Cost (CAC) in USD as an integer
@@ -160,31 +181,31 @@ class PDFExtracter(AbstractExtracter):
    - Revenue Growth Rate year-over-year as an integer percentage
    - Revenue Growth Rate month-over-month as an integer percentage
 
-2. OPERATIONAL METRICS
+3. OPERATIONAL METRICS
    - Sales Cycle Length in days as an integer
    - Monthly Active Users (MAU) as an integer
    - User Growth Rate year-over-year as an integer percentage
    - User Growth Rate month-over-month as an integer percentage
    - Conversion Rate from free to paid as an integer percentage
 
-3. STRATEGIC METRICS
+4. STRATEGIC METRICS
    - Pricing Strategy Maturity as an integer between 1-5
    - Burn Rate (monthly) in USD as an integer
    - Runway in months as an integer
    - IP Protection (1 for yes, 0 for no)
 
-4. MARKET & COMPETITIVE METRICS
+5. MARKET & COMPETITIVE METRICS
    - Market Competitiveness as an integer between 1-5
    - Market Timing advantage as an integer between 1-5
    - Cap Table Cleanliness as an integer between 1-5
 
-5. FOUNDER & TEAM METRICS
+6. FOUNDER & TEAM METRICS
    - Founder Industry Experience as an integer (years or scale 1-5)
    - Founder Past Exits as an integer
    - Founder Background/pedigree as an integer between 1-5
 
-6. LOCATION DATA
+7. LOCATION DATA
    - Country of Headquarters as a string
 
-Provide data ONLY for these specific fields and in the exact format requested. Return the data as a valid JSON object.
+Provide data ONLY for these specific fields and in the exact format requested. The Company Information should be nested under the "company_info" field. Return the data as a valid JSON object that follows the Category schema structure.
 """
