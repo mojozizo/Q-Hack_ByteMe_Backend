@@ -18,3 +18,9 @@ Bonus points for stretch goals like founder track record analysis, real-time dem
 - Figure out the evaluation criterias as well as the workflows within the evaluation pipeline
 
 - Figure out the scoring criteria
+
+# Build
+docker build -t q-backend .
+
+# Run
+docker run -v $(pwd)/:/app/ q-backend
