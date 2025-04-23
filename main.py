@@ -3,52 +3,84 @@ from fastapi.responses import JSONResponse
 import os
 import shutil
 from pathlib import Path
-import PyPDF2
 from openai import OpenAI
 from dotenv import load_dotenv
-import io
 
 # Load environment variables
 load_dotenv()
 
 app = FastAPI(title="BytemMe - ACE Alternative")
 
+# Get API key from environment
+api_key = os.getenv("OPENAI_API_KEY")
+if not api_key:
+    raise ValueError("OPENAI_API_KEY environment variable is not set")
+
 # Initialize OpenAI client
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+client = OpenAI()
 
 # Create uploads directory if it doesn't exist
 UPLOAD_DIR = Path("uploads")
 UPLOAD_DIR.mkdir(exist_ok=True)
 
-def extract_text_from_pdf(pdf_file):
-    """Extract text from PDF file."""
+def process_pdf_with_chatgpt(file_path: Path, query: str = None):
+    """Process PDF directly with ChatGPT."""
     try:
-        pdf_reader = PyPDF2.PdfReader(pdf_file)
-        text = ""
-        for page in pdf_reader.pages:
-            text += page.extract_text()
-        return text
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Error extracting text from PDF: {str(e)}")
-
-def process_with_chatgpt(text):
-    """Process text with ChatGPT."""
-    try:
-        response = client.chat.completions.create(
-            model="gpt-3.5-turbo",
-            messages=[
-                {"role": "system", "content": "You are a helpful assistant that extracts and summarizes key information from documents."},
-                {"role": "user", "content": f"Please analyze the following text and extract the key information:\n\n{text}"}
-            ],
-            temperature=0.7,
-            max_tokens=500
+        # Upload the file to OpenAI
+        with open(file_path, "rb") as file:
+            uploaded_file = client.files.create(
+                file=file,
+                purpose="assistants"
+            )
+        
+        # Create an assistant
+        assistant = client.beta.assistants.create(
+            name="PDF Analyzer",
+            instructions="You are a helpful assistant that analyzes PDF documents and answers questions about them.",
+            model="gpt-4-turbo-preview",
+            tools=[{"type": "retrieval"}]
         )
-        return response.choices[0].message.content
+        
+        # Create a thread
+        thread = client.beta.threads.create()
+        
+        # Add the file to the thread
+        message = client.beta.threads.messages.create(
+            thread_id=thread.id,
+            role="user",
+            content=query or "Please analyze this PDF and provide a summary of its contents.",
+            file_ids=[uploaded_file.id]
+        )
+        
+        # Run the assistant
+        run = client.beta.threads.runs.create(
+            thread_id=thread.id,
+            assistant_id=assistant.id
+        )
+        
+        # Wait for the run to complete
+        while True:
+            run_status = client.beta.threads.runs.retrieve(
+                thread_id=thread.id,
+                run_id=run.id
+            )
+            if run_status.status == "completed":
+                break
+        
+        # Get the response
+        messages = client.beta.threads.messages.list(thread_id=thread.id)
+        response = messages.data[0].content[0].text.value
+        
+        # Clean up
+        client.files.delete(file_id=uploaded_file.id)
+        client.beta.assistants.delete(assistant_id=assistant.id)
+        
+        return response
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error processing with ChatGPT: {str(e)}")
 
 @app.post("/upload-pdf/")
-async def upload_pdf(file: UploadFile = File(...)):
+async def upload_pdf(file: UploadFile = File(...), query: str = None):
     try:
         # Validate file type
         if not file.filename.endswith('.pdf'):
@@ -62,11 +94,8 @@ async def upload_pdf(file: UploadFile = File(...)):
         with file_path.open("wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
         
-        # Extract text from PDF
-        pdf_text = extract_text_from_pdf(file_path)
-        
         # Process with ChatGPT
-        processed_info = process_with_chatgpt(pdf_text)
+        processed_info = process_pdf_with_chatgpt(file_path, query)
         
         return JSONResponse(
             status_code=200,
@@ -74,7 +103,6 @@ async def upload_pdf(file: UploadFile = File(...)):
                 "message": "File uploaded and processed successfully",
                 "filename": file.filename,
                 "file_path": str(file_path),
-                "extracted_text": pdf_text,
                 "processed_info": processed_info
             }
         )
@@ -88,4 +116,4 @@ async def upload_pdf(file: UploadFile = File(...)):
 
 @app.get("/")
 async def root():
-    return {"message": "Welcome to the PDF Processing API"} 
+    return {"message": "Welcome to ByteMe"} 
