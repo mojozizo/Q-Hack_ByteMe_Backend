@@ -12,7 +12,6 @@ langchain-core==0.3.55
 langchain-openai==0.3.14
 langchain-text-splitters==0.3.8
 faiss-cpu==1.10.0
-google-adk==0.2.0
 google-cloud-aiplatform==1.90.0
 google-cloud-storage==2.19.0
 starlette==0.36.3
