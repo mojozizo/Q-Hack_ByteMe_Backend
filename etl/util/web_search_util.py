@@ -183,7 +183,57 @@ class WebSearchUtils:
         except Exception as e:
             print(f"Social profile extraction failed: {str(e)}")
             return {}
-    
+
+    @staticmethod
+    def search_cik_by_name(company_name: str) -> Optional[str]:
+        """
+        Search for a company's CIK number using OpenAI's web browsing capability.
+
+        Args:
+            company_name: Company name to search for
+
+        Returns:
+            CIK number as a string (padded to 10 digits) if found, None otherwise
+        """
+        prompt = f"""
+        Find the SEC Central Index Key (CIK) for the company "{company_name}".
+
+        Search the SEC Edgar database or other reliable sources to find this information.
+        The CIK is a 10-digit number (may include leading zeros) that the SEC uses to identify companies.
+
+        Format your response as a JSON object with the key "cik" containing the CIK number as a string.
+        If you find a CIK with fewer than 10 digits, pad it with leading zeros to make it 10 digits.
+        If you cannot find the CIK with high confidence, set the value to null.
+
+        Example response:
+        {{
+          "cik": "0000320193"
+        }}
+        """
+
+        try:
+            response = client.chat.completions.create(
+                model="gpt-4o",
+                messages=[
+                    {"role": "system",
+                     "content": "You are a financial research assistant that finds accurate company CIK numbers."},
+                    {"role": "user", "content": prompt}
+                ],
+                response_format={"type": "json_object"}
+            )
+
+            result = json.loads(response.choices[0].message.content)
+
+            cik = result.get("cik")
+
+            if not cik or cik == "null":
+                return None
+
+            return str(cik).zfill(10)
+        except Exception as e:
+            print(f"CIK lookup failed: {str(e)}")
+            return None
+
     @staticmethod
     def search_company_info(company_name: str) -> Dict[str, Any]:
         """
