@@ -1,14 +1,12 @@
-from typing import Dict, Any, Optional, List
 import json
-import os
+from typing import Dict, Any, Optional
 
-from langchain_openai import ChatOpenAI
 from langchain.chains import LLMChain
-from langchain_core.prompts import ChatPromptTemplate, SystemMessage
-from pydantic import BaseModel
+from langchain_core.messages import SystemMessage
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_openai import ChatOpenAI
 
 from etl.util.web_search_util import WebSearchUtils
-from models.model import Category, CategoryToSearch
 
 
 class WebSearchAgent:
