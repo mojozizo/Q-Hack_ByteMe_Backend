@@ -1,5 +1,6 @@
 from fastapi import UploadFile, File, APIRouter, HTTPException, Path, Query
 from starlette.responses import JSONResponse
+import json
 
 from etl.extract.extractor_handler import ExtractorHandler
 from etl.util.file_util import create_or_get_upload_folder

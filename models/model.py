@@ -41,10 +41,13 @@ class StartupMetrics(BaseModel):
     burn_rate: Optional[int] = Field(None, description="Burn Rate (monthly)")
     runway: Optional[int] = Field(None, description="Runway (in months)")
     
-    # Criteria fields - Founder-related metrics
-    founder_industry_experience: Optional[int] = Field(None, description="Founder experience in industry")
-    founder_past_exits: Optional[int] = Field(None, description="Founder track record of past exits?")
-    founder_background: Optional[int] = Field(None, description="Founder background at target companies/universities")
+    # Criteria fields - Founder-related metrics from LinkedIn
+    founder_industry_experience: Optional[int] = Field(None, description="Founder experience in industry (years or scale 1-5, extracted from LinkedIn)")
+    founder_past_exits: Optional[int] = Field(None, description="Founder track record of past exits (count, extracted from LinkedIn profile)")
+    founder_background: Optional[int] = Field(None, description="Founder background at target companies/universities (scale 1-5, based on LinkedIn education and experience)")
+    founder_linkedin_url: Optional[str] = Field(None, description="LinkedIn URL of the founder/CEO")
+    founder_linkedin_summary: Optional[str] = Field(None, description="Professional summary from LinkedIn profile")
+    founder_skills: Optional[list] = Field(None, description="List of professional skills extracted from LinkedIn")
     
     # Criteria fields - Scale metrics (1-5)
     market_competitiveness: Optional[int] = Field(None, description="Competitiveness of the market (scale 1-5)")
@@ -74,8 +77,12 @@ class StartupMetrics(BaseModel):
     founder_sanction_free: Optional[bool] = Field(None, description="Founder is sanction free (yes/no)")
     business_model_scalability: Optional[int] = Field(None, description="Scalability of the business model and sales process (scale 1-5)")
     hiring_plan_alignment: Optional[int] = Field(None, description="Alignment of hiring plan and business goals (scale 1-5)")
-    regulatory_risks: Optional[bool] = Field(None, description="Regulatory Risks (yes/no)")
-    trend_risks: Optional[bool] = Field(None, description="Trend Risks (yes/no)")
+    
+    # Criteria fields - Risk assessment from news sources
+    regulatory_risks: Optional[bool] = Field(None, description="Regulatory Risks detected from news sources (yes/no)")
+    trend_risks: Optional[bool] = Field(None, description="Trend Risks detected from news sources (yes/no)")
+    news_sentiment: Optional[str] = Field(None, description="Overall sentiment from news sources (positive/neutral/negative)")
+    recent_news_summary: Optional[str] = Field(None, description="Summary of recent news about the company")
     litigation_ip_disputes: Optional[bool] = Field(None, description="Litigation or IP disputes (yes/no)")
     company_sanction_free: Optional[bool] = Field(None, description="Company is sanction free (yes/no)")
 

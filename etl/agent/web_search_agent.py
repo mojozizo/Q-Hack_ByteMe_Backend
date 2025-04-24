@@ -403,6 +403,35 @@ class WebSearchAgent:
             Integrated and validated data
         """
         try:
+            # Clean up company_name if it's in JSON format or has quotes/newlines
+            if company_name and isinstance(company_name, str):
+                # Try to parse as JSON if it starts with quotes or braces
+                if (company_name.startswith('"') and company_name.endswith('"')) or \
+                   (company_name.startswith('{') and company_name.endswith('}')):
+                    try:
+                        parsed = json.loads(company_name)
+                        if isinstance(parsed, dict) and "company_name" in parsed:
+                            company_name = parsed["company_name"]
+                        elif isinstance(parsed, str):
+                            company_name = parsed
+                    except:
+                        # If JSON parsing fails, just clean up the string
+                        pass
+                
+                # Clean up whitespace and quotes
+                company_name = company_name.strip().strip('"\'').strip()
+
+            # Handle case where company_name might still be None or empty
+            if not company_name:
+                company_name = "this company"
+                
+                # Try to extract from data if available
+                if "company_info" in data and data["company_info"]:
+                    if "company_name" in data["company_info"] and data["company_info"]["company_name"]:
+                        company_name = data["company_info"]["company_name"]
+                elif "company_name" in data:
+                    company_name = data["company_name"]
+            
             # Create a prompt for the LLM
             prompt = f"""
             I have collected the following information about {company_name}:

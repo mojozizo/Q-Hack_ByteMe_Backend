@@ -651,37 +651,171 @@ class PDFAgentExecutor:
         """
         result = {}
         
-        # Try to extract company name from text
-        # Look for patterns like "Company:" or "About [Company]"
         import re
         
-        # Look for potential company names (capitalized words)
+        # Try multiple extraction methods to find the company name
+        # Method 1: Look for domain names in URLs, which often contain company names
+        url_patterns = [
+            r'www\.([a-zA-Z0-9_-]+)\.com',
+            r'https?://(?:www\.)?([a-zA-Z0-9_-]+)\.com',
+            r'https?://(?:www\.)?([a-zA-Z0-9_-]+)\.org',
+            r'https?://(?:www\.)?([a-zA-Z0-9_-]+)\.co',
+            r'https?://(?:www\.)?([a-zA-Z0-9_-]+)\.io'
+        ]
+        
+        # Try to extract a domain name, which might be the company name
+        website_link = None
+        domain_name = None
+        
+        for pattern in url_patterns:
+            url_match = re.search(pattern, pdf_text)
+            if url_match:
+                domain = url_match.group(1).lower()
+                website_link = url_match.group(0)
+                domain_name = domain
+                break
+        
+        # Method 2: Look for patterns like "Company:" or "About [Company]"
         company_pattern = re.compile(r'(?:Company|Organization|About)\s*:?\s*([A-Z][A-Za-z0-9\s]+(?:Inc\.?|LLC|Ltd\.?|Corporation|Corp\.?|Company|Co\.?)?)', re.IGNORECASE)
         company_match = company_pattern.search(pdf_text)
         
         if company_match:
             result["company_name"] = company_match.group(1).strip()
+        elif domain_name:
+            # If we found a domain but no explicit company name, use the domain
+            result["company_name"] = domain_name.title()  # Capitalize properly
         else:
-            # If no match found, try to extract the first capitalized phrase
+            # Method 3: Try to extract the first capitalized phrase as a potential company name
             lines = pdf_text.split('\n')
-            for line in lines[:20]:  # Check first 20 lines
+            for line in lines[:30]:  # Check first 30 lines for potential company names
+                # Skip very short or empty lines
+                if len(line.strip()) < 3:
+                    continue
+                    
                 words = line.strip().split()
                 if len(words) >= 2 and words[0][0].isupper():
-                    result["company_name"] = ' '.join(words[:3])  # Take first 3 words
-                    break
+                    # Take the first few words that might represent a company name
+                    potential_name = ' '.join(words[:3])
+                    
+                    # Avoid common false positives 
+                    false_positives = ['welcome', 'introduction', 'about', 'table of contents', 'content', 'section']
+                    if not any(fp in potential_name.lower() for fp in false_positives):
+                        result["company_name"] = potential_name
+                        break
             
+            # Method 4: Look for common company suffixes
             if "company_name" not in result:
-                result["company_name"] = "Unknown Company"
+                company_suffix_pattern = re.compile(r'([A-Z][A-Za-z0-9\s]+)\s+(Inc\.?|LLC|Ltd\.?|Corporation|Corp\.?|Company|Co\.?)', re.IGNORECASE)
+                suffix_match = company_suffix_pattern.search(pdf_text)
+                if suffix_match:
+                    result["company_name"] = suffix_match.group(0).strip()
+        
+        # If all methods fail, use a generic placeholder
+        if "company_name" not in result:
+            result["company_name"] = "Unknown Company"
+        
+        # Record website URL if found
+        if website_link:
+            result["website_link"] = website_link
         
         # Extract a summary from the first 1000 characters
         summary = pdf_text[:1000]
         result["pitch_deck_summary"] = summary
         
-        # Extract potential website URLs
-        url_pattern = re.compile(r'https?://(?:www\.)?([A-Za-z0-9.-]+\.[A-Za-z]{2,})')
-        url_match = url_pattern.search(pdf_text)
-        if url_match:
-            result["website_link"] = url_match.group(0)
+        # Try to extract founders and team information
+        founders = []
+        founder_info = ""
+        
+        # Find team/founder section
+        team_sections = re.split(r'(?i)(?:team|founders|management|leadership|executives|about\s+us)(?:\s+section)?[\s\:\-]+', pdf_text)
+        if len(team_sections) > 1:
+            team_section = team_sections[1].split('\n\n')[0]  # Take first paragraph after team heading
+            
+            # Look for common patterns in team sections
+            # Pattern 1: Full name followed by title with CEO/Founder/Co-founder
+            founder_pattern = re.compile(r'([A-Z][a-z]+\s+[A-Z][a-z]+)[\s\,\-]+(?:CEO|Chief\s+Executive\s+Officer|Founder|Co-founder|Cofounder)', re.IGNORECASE)
+            founder_matches = founder_pattern.finditer(team_section)
+            for match in founder_matches:
+                founders.append(match.group(1))
+            
+            # Pattern 2: Name followed by email that includes domain
+            email_pattern = re.compile(r'([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)[\s\,\.\:\-]*([a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+)', re.IGNORECASE)
+            email_matches = email_pattern.finditer(pdf_text)
+            
+            for match in email_matches:
+                full_name = match.group(1).strip()
+                email = match.group(2)
+                
+                # Only add if we don't already have this founder
+                if full_name not in founders:
+                    founders.append(full_name)
+                    
+                    # Extract domain part from email as additional company confirmation
+                    email_domain = email.split('@')[-1].split('.')[0]
+                    if domain_name is None and email_domain not in ['gmail', 'hotmail', 'yahoo', 'outlook']:
+                        domain_name = email_domain
+        
+        # If we found any founders, format them and search for LinkedIn profile
+        if founders:
+            founder_info = ", ".join(founders)
+            result["founders"] = founder_info
+            
+            # If we don't already have a LinkedIn link, try to create one for the first founder
+            if "linkedin_profile_ceo" not in result and len(founders) > 0:
+                try:
+                    # Create a LinkedIn URL from founder name
+                    ceo_name = founders[0]
+                    name_parts = ceo_name.strip().split()
+                    
+                    if len(name_parts) >= 2:
+                        first_name = name_parts[0].lower()
+                        last_name = '-'.join([part.lower() for part in name_parts[1:]])
+                        company_slug = result.get("company_name", "").lower().replace(" ", "-")
+                        
+                        # Remove special characters
+                        company_slug = re.sub(r'[^a-z0-9\-]', '', company_slug)
+                        first_name = re.sub(r'[^a-z0-9\-]', '', first_name)
+                        last_name = re.sub(r'[^a-z0-9\-]', '', last_name)
+                        
+                        # Try to search for the LinkedIn profile using the WebSearchUtils
+                        try:
+                            linkedin_data = WebSearchUtils.search_linkedin(
+                                first_name=first_name,
+                                last_name=last_name,
+                                company_name=result.get("company_name", "")
+                            )
+                            
+                            # If the search returned data, we've found a profile
+                            if linkedin_data and isinstance(linkedin_data, dict) and len(linkedin_data) > 0:
+                                # The API doesn't directly return the URL, so construct a likely URL
+                                result["linkedin_profile_ceo"] = f"https://linkedin.com/in/{first_name}-{last_name}"
+                        except Exception as e:
+                            print(f"Error searching LinkedIn: {str(e)}")
+                            # Fallback to a constructed URL even if the search failed
+                            result["linkedin_profile_ceo"] = f"https://linkedin.com/in/{first_name}-{last_name}"
+                except Exception as e:
+                    print(f"Error creating LinkedIn URL: {str(e)}")
+        
+        # Try to extract additional contact information
+        email_pattern = re.compile(r'[\w\.-]+@[\w\.-]+\.\w+')
+        email_match = email_pattern.search(pdf_text)
+        if email_match:
+            result["contact_email"] = email_match.group(0)
+        
+        # Try to extract founding year
+        year_pattern = re.compile(r'(?:founded|established|since|est\.?)\s+in\s+(\d{4})', re.IGNORECASE)
+        year_match = year_pattern.search(pdf_text)
+        if year_match:
+            try:
+                result["year_of_founding"] = int(year_match.group(1))
+            except ValueError:
+                pass
+        
+        # Try to extract location/headquarters
+        location_pattern = re.compile(r'(?:headquartered|based|location|address|hq)(?:\s+in)?\s+([A-Za-z\s,]+(?:USA|US|United States|Canada|UK|Australia|[A-Z]{2}))', re.IGNORECASE)
+        location_match = location_pattern.search(pdf_text)
+        if location_match:
+            result["location_of_headquarters"] = location_match.group(1).strip()
         
         return result
     
