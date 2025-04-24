@@ -28,6 +28,14 @@ ByteMe follows an ETL (Extract, Transform, Load) and a Multi-Agent architecture:
 
 ## Key Components
 
+Note that you would require the 4 environment variables in a .env file for the extraction to work well:
+OPENAI_API_KEY="your token here"
+BRIGHTDATA_API_TOKEN="your token here"
+BRIGHTDATA_DATASET_ID="your token here"
+NEWSAPI_API_TOKEN="your token here"
+
+
+
 ### Extraction Agents
 - **PDF Agent**: Extracts structured data from pitch decks
 - **Web Search Agent**: Enhances extracted data with web search results
