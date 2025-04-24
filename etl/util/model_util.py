@@ -196,19 +196,6 @@ def enrich_model_from_web(
                 company_name = field_value
                 break
     
-    # Also check nested models for company name
-    if not company_name:
-        for field_name in model_instance.model_fields.keys():
-            field_value = getattr(model_instance, field_name, None)
-            if isinstance(field_value, BaseModel):
-                # Check if this nested model has a company name field
-                for sub_field in field_value.model_fields.keys():
-                    if company_name_field.lower() in sub_field.lower():
-                        company_name_value = getattr(field_value, sub_field, None)
-                        if company_name_value and isinstance(company_name_value, str):
-                            company_name = company_name_value
-                            break
-    
     # If we found a company name, try to enrich the data
     if company_name:
         # Get company info from web
@@ -218,59 +205,68 @@ def enrich_model_from_web(
         for api_field, value in company_data.items():
             if hasattr(model_instance, api_field) and not getattr(model_instance, api_field, None):
                 setattr(model_instance, api_field, value)
-            
-            # Also check nested models
-            for field_name in model_instance.model_fields.keys():
-                field_value = getattr(model_instance, field_name, None)
-                if isinstance(field_value, BaseModel) and hasattr(field_value, api_field):
-                    if not getattr(field_value, api_field, None):
-                        setattr(field_value, api_field, value)
         
         # Try to get financial data
         financial_data = web_search_util.search_financial_data(company_name)
         for field_name, value in financial_data.items():
             if hasattr(model_instance, field_name) and not getattr(model_instance, field_name, None):
                 setattr(model_instance, field_name, value)
+                
+        # Get additional metrics data
+        category_data = web_search_util.search_category_to_search_data(company_name)
+        for field_name, value in category_data.items():
+            if hasattr(model_instance, field_name) and not getattr(model_instance, field_name, None):
+                setattr(model_instance, field_name, value)
     
     return model_instance
 
-def enrich_category_to_search(
+def enrich_startup_metrics_from_web(
     company_name: str,
-    existing_category_model: Optional[BaseModel] = None,
+    existing_metrics_model: Optional[BaseModel] = None,
     web_search_util = None
-) -> 'CategoryToSearch':
+) -> BaseModel:
     """
-    Creates and populates a CategoryToSearch model instance with data from web sources.
+    Creates and populates a StartupMetrics model instance with all available metrics.
     
     Args:
         company_name: The name of the company to search for
-        existing_category_model: Optional existing Category model with company info
+        existing_metrics_model: Optional existing StartupMetrics model with some data
         web_search_util: The WebSearchUtils class to use (optional)
         
     Returns:
-        A populated CategoryToSearch model instance
+        A populated StartupMetrics model instance with all available data
     """
     # Import required modules
-    from models.model import CategoryToSearch
+    from models.model import StartupMetrics
     
     if web_search_util is None:
         from etl.util.web_search_util import WebSearchUtils
         web_search_util = WebSearchUtils
     
-    # Create an empty model
-    category_to_search = CategoryToSearch()
+    # Create a new model or use existing one
+    metrics = existing_metrics_model or StartupMetrics(company_name=company_name)
     
     try:
+        # Get company information
+        company_data = web_search_util.search_company_info(company_name)
+        
+        # Get financial metrics
+        financial_data = web_search_util.search_financial_data(company_name)
+        
         # Get advanced metrics data
         advanced_data = web_search_util.search_category_to_search_data(company_name)
         
-        # Update fields in the model from the search results
-        for field_name, value in advanced_data.items():
-            if hasattr(category_to_search, field_name):
-                setattr(category_to_search, field_name, value)
+        # Update all fields in the model
+        for data_source in [company_data, financial_data, advanced_data]:
+            for field_name, value in data_source.items():
+                if hasattr(metrics, field_name) and not getattr(metrics, field_name, None):
+                    setattr(metrics, field_name, value)
         
-        return category_to_search
+        return metrics
         
     except Exception as e:
-        print(f"Error enriching CategoryToSearch: {str(e)}")
-        return category_to_search
+        print(f"Error enriching StartupMetrics: {str(e)}")
+        return metrics
+
+# For backward compatibility
+enrich_category_to_search = enrich_startup_metrics_from_web

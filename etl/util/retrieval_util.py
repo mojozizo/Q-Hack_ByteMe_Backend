@@ -18,8 +18,18 @@ class CompanyInfoRetriever(BaseRetriever):
         Args:
             company_name: Optional name of the company to retrieve information for
         """
-        self.company_name = company_name
-        super().__init__()
+        super().__init__()  # Call parent init first
+        self._company_name = company_name  # Use underscore prefix for private attribute
+    
+    @property
+    def company_name(self) -> Optional[str]:
+        """Getter for company_name"""
+        return self._company_name
+        
+    @company_name.setter
+    def company_name(self, value: str):
+        """Setter for company_name"""
+        self._company_name = value
     
     def _get_relevant_documents(self, query: str) -> List[Document]:
         """
@@ -32,7 +42,7 @@ class CompanyInfoRetriever(BaseRetriever):
             A list of Document objects with company information
         """
         # Extract company name from query if not provided in constructor
-        company_name = self.company_name or self._extract_company_name(query)
+        company_name = self._company_name or self._extract_company_name(query)
         
         if not company_name:
             return []

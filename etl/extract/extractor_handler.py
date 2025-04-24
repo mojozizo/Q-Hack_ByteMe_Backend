@@ -1,4 +1,5 @@
 from etl.extract.abstract_extracter import AbstractExtracter
+from typing import Dict, Any, Optional
 
 
 class ExtractorHandler:
@@ -20,8 +21,16 @@ class ExtractorHandler:
             An instance of the appropriate extractor
         """
         if source_type == "pdf":
-            # Always use the simple PDF extractor for reliability
-            from etl.extract.simple_pdf_extractor import SimplePDFExtractor
-            return SimplePDFExtractor()
+            # Determine which PDF extractor to use based on the requested workflow
+            if use_modular_workflow:
+                from etl.extract.modular_extracter import ModularExtractor
+                return ModularExtractor()
+            elif use_agent_workflow:
+                from etl.extract.pdf_extracter import PDFExtracter
+                return PDFExtracter(use_agent_workflow=True)
+            else:
+                # Use WebSearch-enhanced PDF extractor 
+                from etl.extract.pdf_web_search_extractor import PDFWebSearchExtractor
+                return PDFWebSearchExtractor()
         else:
             raise ValueError(f"Unsupported source type: {source_type}")
