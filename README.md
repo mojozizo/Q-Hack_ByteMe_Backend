@@ -1,6 +1,6 @@
 # ByteMe - Startup Analysis Platform
 
-ByteMe is a comprehensive startup analysis platform that serves as an alternative to ACE. The platform extracts structured data from pitch decks and websites, evaluates startups through cross-referencing information with public sources, and provides valuation metrics for investment decisions.
+ByteMe is a comprehensive startup analysis platform that was developed as a solution for ACE Alternative during the Q-Hack 2025 Hackathon. The platform extracts structured data from pitch decks and websites, evaluates startups through cross-referencing information with public sources, and provides valuation metrics for investment decisions.
 
 ## Problem Statement
 
@@ -10,7 +10,7 @@ The platform extracts structured data (e.g., founder background, funding history
 
 ## System Architecture
 
-ByteMe follows an ETL (Extract, Transform, Load) architecture:
+ByteMe follows an ETL (Extract, Transform, Load) and a Multi-Agent architecture:
 
 ### Extract Phase
 - **Modular Extraction System** that processes pitch decks and other documents
@@ -49,6 +49,7 @@ ByteMe follows an ETL (Extract, Transform, Load) architecture:
 - `/upload-pdf/`: Process and analyze pitch decks
 - `/news/{company_name}`: Retrieve news data for a specific company
 - `/linkedin/{profile_url}`: Analyze LinkedIn profiles
+- `/financial/{company_name}`: Run a comprehensive analysis using all agents
 - `/orchestrate/`: Run a comprehensive analysis using all agents
 
 ## Workflows
