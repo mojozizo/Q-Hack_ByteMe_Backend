@@ -1,4 +1,6 @@
 import os
+import time
+import requests
 from typing import Dict, Any, Optional, Type, List
 from pathlib import Path
 import json
@@ -12,7 +14,7 @@ from langchain.agents import initialize_agent, AgentType
 from langchain_core.messages import SystemMessage
 from pydantic import BaseModel, Field
 
-from models.model import Category, CompanyInfo, CategoryToSearch
+from models.model import Category, CompanyInfo, CategoryToSearch, StartupMetrics
 from etl.util.web_search_util import WebSearchUtils
 from etl.util.model_util import enrich_category_to_search, enrich_model_from_web
 
@@ -31,56 +33,71 @@ class PDFAgentTools:
         Returns:
             Dictionary with company information fields
         """
-        llm = ChatOpenAI(temperature=0, model="gpt-4o")
-        
-        prompt = """
-        Extract the following company information from the provided text:
-        - Company Name
-        - Official Company Name (if different)
-        - Year of Founding (as integer)
-        - Location of Headquarters
-        - Business Model
-        - Industry
-        - Required Funding Amount (as integer)
-        - Number of Employees (e.g., "10-50")
-        - Website Link
-        - One Sentence Pitch
-        - LinkedIn Profile of CEO
-        
-        Provide a detailed summary of the document highlighting all important aspects of the company.
-        
-        Return a valid JSON object with these keys:
-        - company_name
-        - official_company_name
-        - year_of_founding
-        - location_of_headquarters
-        - business_model
-        - industry
-        - required_funding_amount
-        - employees
-        - website_link
-        - one_sentence_pitch
-        - linkedin_profile_ceo
-        - pitch_deck_summary
-        
-        Only include fields where you can find information in the text.
-        """
-        
-        chain = LLMChain(llm=llm, prompt=ChatPromptTemplate.from_messages([
-            SystemMessage(content="You are a specialized financial document analyzer focused on extracting company information from pitch decks."),
-            ("user", prompt + "\n\nDocument text:\n{text}")
-        ]))
-        
-        result = chain.invoke({"text": pdf_text})
         try:
-            # Try to parse the result as JSON
-            start_idx = result["text"].find("{")
-            end_idx = result["text"].rfind("}") + 1
-            json_str = result["text"][start_idx:end_idx]
-            return json.loads(json_str)
-        except:
-            # Return an empty dict if parsing fails
-            return {}
+            llm = ChatOpenAI(temperature=0, model="gpt-4o")
+            
+            prompt = """
+            Extract the following company information from the provided text:
+            - Company Name
+            - Official Company Name (if different)
+            - Year of Founding (as integer)
+            - Location of Headquarters
+            - Business Model
+            - Industry
+            - Required Funding Amount (as integer)
+            - Number of Employees (e.g., "10-50")
+            - Website Link
+            - One Sentence Pitch
+            - LinkedIn Profile of CEO
+            
+            Provide a detailed summary of the document highlighting all important aspects of the company.
+            
+            Return a valid JSON object with these keys:
+            - company_name
+            - official_company_name
+            - year_of_founding
+            - location_of_headquarters
+            - business_model
+            - industry
+            - required_funding_amount
+            - employees
+            - website_link
+            - one_sentence_pitch
+            - linkedin_profile_ceo
+            - pitch_deck_summary
+            
+            Only include fields where you can find information in the text.
+            """
+            
+            chain = LLMChain(llm=llm, prompt=ChatPromptTemplate.from_messages([
+                SystemMessage(content="You are a specialized financial document analyzer focused on extracting company information from pitch decks."),
+                ("user", prompt + "\n\nDocument text:\n{text}")
+            ]))
+            
+            result = chain.invoke({"text": pdf_text})
+            try:
+                # Try to parse the result as JSON
+                start_idx = result["text"].find("{")
+                end_idx = result["text"].rfind("}") + 1
+                json_str = result["text"][start_idx:end_idx]
+                return json.loads(json_str)
+            except:
+                # Return an empty dict if parsing fails
+                return {}
+        except requests.exceptions.RequestException as e:
+            # Handle connection errors
+            print(f"Connection error in extract_company_info: {str(e)}")
+            # Provide basic fallback data
+            return {
+                "error": f"Connection error: {str(e)}",
+                "company_name": "Unknown",
+                "pitch_deck_summary": "Could not extract summary due to connection error"
+            }
+        except Exception as e:
+            print(f"Error in extract_company_info: {str(e)}")
+            return {
+                "error": f"Error: {str(e)}"
+            }
     
     @tool
     def extract_financial_metrics(pdf_text: str) -> Dict[str, Any]:
@@ -436,63 +453,70 @@ class PDFAgentExecutor:
         Args:
             model_name: Name of the OpenAI model to use
         """
-        self.llm = ChatOpenAI(temperature=0, model=model_name)
+        # Set a timeout for API calls to avoid hanging
+        self.timeout = 60
         
-        # Create tools from PDFAgentTools methods
-        self.tools = [
-            PDFAgentTools.extract_company_info,
-            PDFAgentTools.extract_financial_metrics,
-            PDFAgentTools.extract_operational_metrics,
-            PDFAgentTools.extract_strategic_and_market_metrics,
-            PDFAgentTools.extract_founder_metrics,
-            PDFAgentTools.enrich_with_web_data,
-            PDFAgentTools.extract_social_profiles,
-            PDFAgentTools.extract_linkedin_data,
-            PDFAgentTools.search_news,
-            PDFAgentTools.get_startup_metrics_data  # Use the new method instead of get_category_to_search_data
-        ]
-        
-        # Add memory to maintain conversation context
-        from langchain.memory import ConversationBufferMemory
-        
-        self.memory = ConversationBufferMemory(
-            memory_key="chat_history", 
-            return_messages=True
-        )
-        
-        # Create the system prompt
-        system_prompt = """You are a specialized financial analyst agent that extracts structured data from startup pitch decks. 
-        Your task is to extract and enrich startup data from PDF content. Follow these steps:
-        
-        1. Analyze the PDF content to extract company information
-        2. Extract financial metrics
-        3. Extract operational metrics
-        4. Extract strategic and market metrics
-        5. Extract founder metrics
-        6. Enrich data with web sources if needed
-        
-        Make sure to use the appropriate tools for each task.
-        """
-        
-        # Create the prompt template
-        prompt = ChatPromptTemplate.from_messages([
-            SystemMessage(content=system_prompt),
-            MessagesPlaceholder(variable_name="chat_history"),
-            ("user", "{input}"),
-            MessagesPlaceholder(variable_name="agent_scratchpad")
-        ])
-        
-        # Create the agent
-        self.agent = create_openai_tools_agent(self.llm, self.tools, prompt)
-        
-        # Create the agent executor with memory
-        self.agent_executor = AgentExecutor(
-            agent=self.agent,
-            tools=self.tools,
-            memory=self.memory,
-            verbose=True,
-            handle_parsing_errors=True
-        )
+        try:
+            self.llm = ChatOpenAI(temperature=0, model=model_name, request_timeout=self.timeout)
+            
+            # Create tools from PDFAgentTools methods
+            self.tools = [
+                PDFAgentTools.extract_company_info,
+                PDFAgentTools.extract_financial_metrics,
+                PDFAgentTools.extract_operational_metrics,
+                PDFAgentTools.extract_strategic_and_market_metrics,
+                PDFAgentTools.extract_founder_metrics,
+                PDFAgentTools.enrich_with_web_data,
+                PDFAgentTools.extract_social_profiles,
+                PDFAgentTools.extract_linkedin_data,
+                PDFAgentTools.search_news,
+                PDFAgentTools.get_startup_metrics_data  # Use the new method instead of get_category_to_search_data
+            ]
+            
+            # Add memory to maintain conversation context
+            from langchain.memory import ConversationBufferMemory
+            
+            self.memory = ConversationBufferMemory(
+                memory_key="chat_history", 
+                return_messages=True
+            )
+            
+            # Create the system prompt
+            system_prompt = """You are a specialized financial analyst agent that extracts structured data from startup pitch decks. 
+            Your task is to extract and enrich startup data from PDF content. Follow these steps:
+            
+            1. Analyze the PDF content to extract company information
+            2. Extract financial metrics
+            3. Extract operational metrics
+            4. Extract strategic and market metrics
+            5. Extract founder metrics
+            6. Enrich data with web sources if needed
+            
+            Make sure to use the appropriate tools for each task.
+            """
+            
+            # Create the prompt template
+            prompt = ChatPromptTemplate.from_messages([
+                SystemMessage(content=system_prompt),
+                MessagesPlaceholder(variable_name="chat_history"),
+                ("user", "{input}"),
+                MessagesPlaceholder(variable_name="agent_scratchpad")
+            ])
+            
+            # Create the agent
+            self.agent = create_openai_tools_agent(self.llm, self.tools, prompt)
+            
+            # Create the agent executor with memory
+            self.agent_executor = AgentExecutor(
+                agent=self.agent,
+                tools=self.tools,
+                memory=self.memory,
+                verbose=True,
+                handle_parsing_errors=True
+            )
+        except Exception as e:
+            print(f"Error initializing PDFAgentExecutor: {str(e)}")
+            # Will use fallback methods if initialization fails
     
     def extract_from_pdf_text(self, pdf_text: str, enable_web_enrichment: bool = True) -> Dict[str, Any]:
         """
@@ -505,17 +529,28 @@ class PDFAgentExecutor:
         Returns:
             Dictionary with extracted and enriched data
         """
-        # Prepare the input for the agent
-        input_data = {
-            "input": f"Extract structured data from this pitch deck. If web enrichment is enabled ({enable_web_enrichment}), also search the web for additional information.\n\nPDF content:\n{pdf_text[:10000]}...",
-            "chat_history": []
-        }
-        
-        # Execute the agent
-        result = self.agent_executor.invoke(input_data)
-        
         try:
-            # Try to parse the output as a JSON structure
+            # Check if the agent executor was properly initialized
+            if not hasattr(self, 'agent_executor') or self.agent_executor is None:
+                raise Exception("Agent executor not initialized properly")
+                
+            # Prepare the input for the agent
+            input_data = {
+                "input": f"Extract structured data from this pitch deck. If web enrichment is enabled ({enable_web_enrichment}), also search the web for additional information.\n\nPDF content:\n{pdf_text[:10000]}...",
+                "chat_history": []
+            }
+            
+            # Add timeout to avoid hanging
+            start_time = time.time()
+            
+            # Execute the agent
+            result = self.agent_executor.invoke(input_data)
+            
+            # Check if execution took too long
+            if time.time() - start_time > self.timeout:
+                print(f"Warning: Agent execution took longer than {self.timeout} seconds")
+            
+            # Process the result
             output = result["output"]
             
             # Look for JSON in the output
@@ -526,49 +561,129 @@ class PDFAgentExecutor:
                 json_str = output[start_idx:end_idx]
                 extracted_data = json.loads(json_str)
             else:
-                # If no JSON is found, create an empty structure
-                extracted_data = {}
+                # If no JSON is found, use basic extraction on the PDF text
+                extracted_data = self._fallback_extraction(pdf_text)
             
-            # Create a single StartupMetrics instance from extracted data
-            from models.model import StartupMetrics
+            # Create a StartupMetrics instance
             metrics = StartupMetrics()
             
-            # Populate the metrics model from extracted data
+            # Populate metrics from extracted data
             for key, value in extracted_data.items():
                 if hasattr(metrics, key):
                     setattr(metrics, key, value)
             
-            # Get additional metrics data if web enrichment is enabled
+            # Try web enrichment if enabled
             if enable_web_enrichment and metrics.company_name:
-                company_name = metrics.company_name
-                # Use the new enrichment function
-                from etl.util.model_util import enrich_startup_metrics_from_web
-                enriched_metrics = enrich_startup_metrics_from_web(company_name, metrics)
-                
-                # Return the final enriched metrics
-                return {
-                    "metrics": enriched_metrics.model_dump(),
-                    # For backward compatibility
-                    "main_category": enriched_metrics.model_dump(),
-                    "search_category": enriched_metrics.model_dump()
-                }
+                try:
+                    company_name = metrics.company_name
+                    from etl.util.model_util import enrich_startup_metrics_from_web
+                    enriched_metrics = enrich_startup_metrics_from_web(company_name, metrics)
+                    
+                    # Return enriched data
+                    return {
+                        "metrics": enriched_metrics.model_dump(),
+                        "main_category": enriched_metrics.model_dump(),
+                        "search_category": enriched_metrics.model_dump()
+                    }
+                except Exception as e:
+                    print(f"Web enrichment failed: {str(e)}")
+                    # Continue with non-enriched data
             
-            # Return the non-enriched metrics if web enrichment is disabled
+            # Return non-enriched data
             return {
                 "metrics": metrics.model_dump(),
-                # For backward compatibility
+                "main_category": metrics.model_dump(),
+                "search_category": metrics.model_dump()
+            }
+            
+        except requests.exceptions.RequestException as e:
+            # Handle connection errors
+            error_msg = f"Connection error: {str(e)}"
+            print(error_msg)
+            
+            # Use fallback extraction
+            fallback_data = self._fallback_extraction(pdf_text)
+            metrics = StartupMetrics()
+            
+            # Set basic fields from fallback
+            for key, value in fallback_data.items():
+                if hasattr(metrics, key):
+                    setattr(metrics, key, value)
+            
+            return {
+                "error": error_msg,
+                "metrics": metrics.model_dump(),
                 "main_category": metrics.model_dump(),
                 "search_category": metrics.model_dump()
             }
             
         except Exception as e:
-            print(f"Error processing agent output: {str(e)}")
+            # Handle other errors
+            error_msg = f"Error processing agent output: {str(e)}"
+            print(error_msg)
+            
+            # Try fallback extraction as a last resort
+            fallback_data = self._fallback_extraction(pdf_text)
+            metrics = StartupMetrics()
+            
+            # Set basic fields from fallback
+            for key, value in fallback_data.items():
+                if hasattr(metrics, key):
+                    setattr(metrics, key, value)
+            
             return {
-                "metrics": StartupMetrics().model_dump(),
-                # For backward compatibility
-                "main_category": StartupMetrics().model_dump(),
-                "search_category": StartupMetrics().model_dump()
+                "error": error_msg,
+                "metrics": metrics.model_dump(),
+                "main_category": metrics.model_dump(),
+                "search_category": metrics.model_dump()
             }
+    
+    def _fallback_extraction(self, pdf_text: str) -> Dict[str, Any]:
+        """
+        Basic fallback extraction when agent-based extraction fails.
+        Uses simple text analysis to extract key information.
+        
+        Args:
+            pdf_text: The text content of the PDF
+            
+        Returns:
+            Dictionary with basic extracted information
+        """
+        result = {}
+        
+        # Try to extract company name from text
+        # Look for patterns like "Company:" or "About [Company]"
+        import re
+        
+        # Look for potential company names (capitalized words)
+        company_pattern = re.compile(r'(?:Company|Organization|About)\s*:?\s*([A-Z][A-Za-z0-9\s]+(?:Inc\.?|LLC|Ltd\.?|Corporation|Corp\.?|Company|Co\.?)?)', re.IGNORECASE)
+        company_match = company_pattern.search(pdf_text)
+        
+        if company_match:
+            result["company_name"] = company_match.group(1).strip()
+        else:
+            # If no match found, try to extract the first capitalized phrase
+            lines = pdf_text.split('\n')
+            for line in lines[:20]:  # Check first 20 lines
+                words = line.strip().split()
+                if len(words) >= 2 and words[0][0].isupper():
+                    result["company_name"] = ' '.join(words[:3])  # Take first 3 words
+                    break
+            
+            if "company_name" not in result:
+                result["company_name"] = "Unknown Company"
+        
+        # Extract a summary from the first 1000 characters
+        summary = pdf_text[:1000]
+        result["pitch_deck_summary"] = summary
+        
+        # Extract potential website URLs
+        url_pattern = re.compile(r'https?://(?:www\.)?([A-Za-z0-9.-]+\.[A-Za-z]{2,})')
+        url_match = url_pattern.search(pdf_text)
+        if url_match:
+            result["website_link"] = url_match.group(0)
+        
+        return result
     
     def _format_to_category(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """

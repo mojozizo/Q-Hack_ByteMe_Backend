@@ -3,6 +3,9 @@ from starlette.responses import JSONResponse
 
 from etl.extract.extractor_handler import ExtractorHandler
 from etl.util.file_util import create_or_get_upload_folder
+from etl.agent.news_agent import NewsAgent
+from etl.agent.linkedin_agent import LinkedInAgent
+from etl.agent.orchestrator_agent import OrchestratorAgent
 
 router = APIRouter()
 
@@ -236,6 +239,162 @@ async def upload_pdf(
         return JSONResponse(
             status_code=500,
             content={"message": f"Server error: {str(e)}"}
+        )
+    finally:
+        # Always close the file
+        file.file.close()
+
+
+@router.get("/news/{company_name}")
+async def get_company_news(company_name: str):
+    """
+    Get news data for a specific company.
+    
+    Args:
+        company_name: The name of the company to get news for
+        
+    Returns:
+        News data about the company
+    """
+    try:
+        # Initialize the news agent
+        news_agent = NewsAgent()
+        
+        # Get news about the company
+        news_data = news_agent._run(company_name)
+        
+        # Convert the Pydantic model to a dictionary for JSON serialization
+        if hasattr(news_data, "model_dump"):
+            news_data_dict = news_data.model_dump()
+        elif hasattr(news_data, "dict"):
+            # For backwards compatibility with older Pydantic versions
+            news_data_dict = news_data.dict()
+        else:
+            # If it's not a Pydantic model, use it directly
+            news_data_dict = news_data
+        
+        # Return the news data
+        return JSONResponse(
+            status_code=200,
+            content={
+                "message": f"Successfully retrieved news data for {company_name}",
+                "company_name": company_name,
+                "news_data": news_data_dict
+            }
+        )
+    except Exception as e:
+        # Handle exceptions
+        import traceback
+        print(f"Error retrieving news data: {str(e)}")
+        print(traceback.format_exc())
+        
+        return JSONResponse(
+            status_code=500,
+            content={"message": f"Error retrieving news data: {str(e)}"}
+        )
+
+
+@router.get("/linkedin/{profile_url:path}")
+async def get_linkedin_profile(profile_url: str):
+    """
+    Get LinkedIn profile data for a specific URL.
+    
+    Args:
+        profile_url: The LinkedIn profile URL to analyze
+        
+    Returns:
+        Structured data about the LinkedIn profile
+    """
+    try:
+        # Check if the URL is a valid LinkedIn URL
+        if not profile_url.startswith("https://www.linkedin.com/") and not profile_url.startswith("linkedin.com/"):
+            return JSONResponse(
+                status_code=400,
+                content={"message": "Invalid LinkedIn URL format. Please provide a valid LinkedIn profile URL."}
+            )
+        
+        # Initialize the LinkedIn agent
+        linkedin_agent = LinkedInAgent()
+        
+        # Get LinkedIn profile data
+        linkedin_data = linkedin_agent._run(profile_url)
+        
+        # If the data is a JSON string, parse it
+        if isinstance(linkedin_data, str):
+            try:
+                linkedin_data_dict = json.loads(linkedin_data)
+            except json.JSONDecodeError:
+                linkedin_data_dict = {"raw_data": linkedin_data}
+        else:
+            linkedin_data_dict = linkedin_data
+        
+        # Return the LinkedIn data
+        return JSONResponse(
+            status_code=200,
+            content={
+                "message": "Successfully retrieved LinkedIn profile data",
+                "profile_url": profile_url,
+                "linkedin_data": linkedin_data_dict
+            }
+        )
+    except Exception as e:
+        # Handle exceptions
+        import traceback
+        print(f"Error retrieving LinkedIn data: {str(e)}")
+        print(traceback.format_exc())
+        
+        return JSONResponse(
+            status_code=500,
+            content={"message": f"Error retrieving LinkedIn data: {str(e)}"}
+        )
+
+
+@router.post("/orchestrate/")
+async def orchestrate_analysis(
+    file: UploadFile = File(...),
+    query: str = None
+):
+    """
+    Orchestrate a complete analysis using all agents.
+    
+    Args:
+        file: The uploaded PDF file to process
+        query: Optional query to guide the extraction
+        
+    Returns:
+        Consolidated results from all agents
+    """
+    try:
+        # Validate file type
+        if not file.filename.endswith('.pdf'):
+            return JSONResponse(
+                status_code=400,
+                content={"message": "Only PDF files are allowed"}
+            )
+        
+        # Initialize the orchestrator
+        orchestrator = OrchestratorAgent()
+        
+        # Process the file through the orchestrator
+        consolidated_results = orchestrator.extract(file, query)
+        
+        return JSONResponse(
+            status_code=200,
+            content={
+                "message": "File processed successfully with orchestrator",
+                "filename": file.filename,
+                "results": consolidated_results
+            }
+        )
+    except Exception as e:
+        # Handle exceptions
+        import traceback
+        print(f"Orchestrator error: {str(e)}")
+        print(traceback.format_exc())
+        
+        return JSONResponse(
+            status_code=500,
+            content={"message": f"Orchestrator error: {str(e)}"}
         )
     finally:
         # Always close the file
