@@ -262,18 +262,50 @@ class OrchestratorAgent(AbstractExtracter):
         Returns:
             Company name or None if not found
         """
-        # Try to extract from main_category.company_info
+        # Try to extract from multiple possible locations
+        
+        # 1. Try from main_category direct company_name field
+        if "main_category" in results and results["main_category"]:
+            if "company_name" in results["main_category"] and results["main_category"]["company_name"]:
+                print(f"Found company name in main_category: {results['main_category']['company_name']}")
+                return results["main_category"]["company_name"]
+        
+        # 2. Try from main_category.company_info
         if "main_category" in results and results["main_category"]:
             if "company_info" in results["main_category"] and results["main_category"]["company_info"]:
                 company_info = results["main_category"]["company_info"]
                 if "company_name" in company_info and company_info["company_name"]:
+                    print(f"Found company name in company_info: {company_info['company_name']}")
                     return company_info["company_name"]
         
-        # Try to extract from metrics if present
+        # 3. Try from search_category
+        if "search_category" in results and results["search_category"]:
+            if "company_name" in results["search_category"] and results["search_category"]["company_name"]:
+                print(f"Found company name in search_category: {results['search_category']['company_name']}")
+                return results["search_category"]["company_name"]
+        
+        # 4. Try to extract from metrics if present
         if "metrics" in results and results["metrics"]:
             if "company_name" in results["metrics"]:
+                print(f"Found company name in metrics: {results['metrics']['company_name']}")
                 return results["metrics"]["company_name"]
+        
+        # 5. Check for company_name directly at the root level
+        if "company_name" in results and results["company_name"]:
+            print(f"Found company name at root level: {results['company_name']}")
+            return results["company_name"]
                 
+        # If we couldn't find a company name, try to use a default from the file name or other sources
+        if "file_name" in results and results["file_name"]:
+            # Extract company name from filename (remove extension)
+            import os
+            base_name = os.path.basename(results["file_name"])
+            company_name = os.path.splitext(base_name)[0]
+            print(f"Using filename as company name: {company_name}")
+            return company_name
+            
+        # No company name found anywhere
+        print("Could not find company name in any field")
         return None
     
     def _extract_linkedin_profile(self, results: Dict[str, Any]) -> Optional[str]:
@@ -286,13 +318,49 @@ class OrchestratorAgent(AbstractExtracter):
         Returns:
             LinkedIn profile URL or None if not found
         """
-        # Try to extract from main_category.company_info
+        # Try multiple locations where LinkedIn profile URL might be stored
+        
+        # 1. Try from main_category.company_info
         if "main_category" in results and results["main_category"]:
             if "company_info" in results["main_category"] and results["main_category"]["company_info"]:
                 company_info = results["main_category"]["company_info"]
                 if "linkedin_profile_ceo" in company_info and company_info["linkedin_profile_ceo"]:
+                    print(f"Found LinkedIn profile in company_info: {company_info['linkedin_profile_ceo']}")
                     return company_info["linkedin_profile_ceo"]
         
+        # 2. Try from main_category direct fields
+        if "main_category" in results and results["main_category"]:
+            if "founder_linkedin_url" in results["main_category"] and results["main_category"]["founder_linkedin_url"]:
+                print(f"Found LinkedIn profile in main_category: {results['main_category']['founder_linkedin_url']}")
+                return results["main_category"]["founder_linkedin_url"]
+                
+            if "linkedin_profile_ceo" in results["main_category"] and results["main_category"]["linkedin_profile_ceo"]:
+                print(f"Found LinkedIn profile (CEO) in main_category: {results['main_category']['linkedin_profile_ceo']}")
+                return results["main_category"]["linkedin_profile_ceo"]
+        
+        # 3. Try from search_category
+        if "search_category" in results and results["search_category"]:
+            if "linkedin_profile_ceo" in results["search_category"] and results["search_category"]["linkedin_profile_ceo"]:
+                print(f"Found LinkedIn profile in search_category: {results['search_category']['linkedin_profile_ceo']}")
+                return results["search_category"]["linkedin_profile_ceo"]
+                
+            if "founder_linkedin_url" in results["search_category"] and results["search_category"]["founder_linkedin_url"]:
+                print(f"Found LinkedIn profile in search_category: {results['search_category']['founder_linkedin_url']}")
+                return results["search_category"]["founder_linkedin_url"]
+        
+        # 4. Try to find any LinkedIn URL in the data
+        import re
+        linkedin_pattern = r'https?://(?:www\.)?linkedin\.com/\S+'
+        
+        # Search in the stringified results
+        results_str = str(results)
+        linkedin_urls = re.findall(linkedin_pattern, results_str)
+        
+        if linkedin_urls:
+            print(f"Found LinkedIn URL using pattern matching: {linkedin_urls[0]}")
+            return linkedin_urls[0]
+        
+        print("No LinkedIn profile URL found")
         return None
     
     def _integrate_results(
@@ -624,7 +692,7 @@ class OrchestratorAgent(AbstractExtracter):
                     risk_assessment["trend_risks"] = result.get("trend_risks", False)
                 except json.JSONDecodeError:
                     # Try to extract JSON with regex
-                    json_match = re.search(r'```json\s*([\s\S]*?)\s*```|({[\s\S]*})', content)
+                    json_match = re.search(r'```json\s*([\\s\S]*?)\s*```|({[\s\S]*})', content)
                     if json_match:
                         json_str = json_match.group(1) or json_match.group(2)
                         try:
@@ -735,7 +803,7 @@ class OrchestratorAgent(AbstractExtracter):
                 founder_metrics["founder_background"] = result.get("founder_background")
             except json.JSONDecodeError:
                 # Try to extract JSON with regex
-                json_match = re.search(r'```json\s*([\s\S]*?)\s*```|({[\s\S]*})', content)
+                json_match = re.search(r'```json\s*([\\s\S]*?)\s*```|({[\s\S]*})', content)
                 if json_match:
                     json_str = json_match.group(1) or json_match.group(2)
                     try:

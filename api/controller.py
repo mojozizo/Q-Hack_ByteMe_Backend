@@ -7,6 +7,7 @@ from etl.util.file_util import create_or_get_upload_folder
 from etl.agent.news_agent import NewsAgent
 from etl.agent.linkedin_agent import LinkedInAgent
 from etl.agent.orchestrator_agent import OrchestratorAgent
+from etl.agent.financial_agent import FinancialAgent
 
 router = APIRouter()
 
@@ -377,15 +378,108 @@ async def orchestrate_analysis(
         orchestrator = OrchestratorAgent()
         
         # Process the file through the orchestrator
-        consolidated_results = orchestrator.extract(file, query)
+        orchestrator_output = orchestrator.extract(file, query)
+        
+        # Convert JSON string to dictionary
+        try:
+            consolidated_results = json.loads(orchestrator_output)
+        except json.JSONDecodeError:
+            print(f"Error parsing orchestrator output: {orchestrator_output}")
+            return JSONResponse(
+                status_code=500,
+                content={"message": "Error parsing orchestrator output", "raw_output": orchestrator_output}
+            )
+        
+        # Create a properly formatted response from the model
+        from models.model import StartupMetrics
+        
+        # Initialize with default values
+        formatted_metrics = StartupMetrics()
+        
+        # Check if we have a main_category structure in the results
+        if "main_category" in consolidated_results:
+            main_category = consolidated_results["main_category"]
+            
+            # First, extract company_info separately if it exists
+            company_info = {}
+            if "company_info" in main_category and main_category["company_info"]:
+                company_info = main_category["company_info"]
+                
+                # Extract company info fields
+                company_info_fields = [
+                    "company_name", "official_company_name", "year_of_founding",
+                    "location_of_headquarters", "business_model", "industry",
+                    "required_funding_amount", "employees", "website_link",
+                    "one_sentence_pitch", "linkedin_profile_ceo", "pitch_deck_summary"
+                ]
+                
+                for field in company_info_fields:
+                    if field in company_info and company_info[field] is not None:
+                        setattr(formatted_metrics, field, company_info[field])
+            
+            # Then check for fields directly in main_category
+            # For each field in the StartupMetrics model
+            for field in formatted_metrics.model_fields:
+                # First check if it exists directly in main_category
+                if field in main_category and main_category[field] is not None:
+                    setattr(formatted_metrics, field, main_category[field])
+                # If not in main_category, check if it's in company_info but wasn't processed yet
+                elif field in company_info and company_info[field] is not None:
+                    setattr(formatted_metrics, field, company_info[field])
+            
+            # If company_name wasn't found, check a few more places
+            if not formatted_metrics.company_name:
+                if "company_name" in main_category and main_category["company_name"]:
+                    formatted_metrics.company_name = main_category["company_name"]
+                elif "search_category" in consolidated_results and "company_name" in consolidated_results["search_category"]:
+                    formatted_metrics.company_name = consolidated_results["search_category"]["company_name"]
+                
+        # Add data from other sources (LinkedIn, News) if they exist in consolidated_results
+        if "linkedin_data" in consolidated_results and consolidated_results["linkedin_data"]:
+            linkedin_data = consolidated_results["linkedin_data"]
+            
+            # Map LinkedIn data to appropriate fields
+            if not formatted_metrics.founder_linkedin_summary and "summary" in linkedin_data:
+                formatted_metrics.founder_linkedin_summary = linkedin_data["summary"]
+                
+            if not formatted_metrics.founder_skills and "skills" in linkedin_data:
+                formatted_metrics.founder_skills = linkedin_data["skills"]
+                
+            if not formatted_metrics.founder_linkedin_url and "source_url" in linkedin_data:
+                formatted_metrics.founder_linkedin_url = linkedin_data["source_url"]
+                
+            # Add more LinkedIn mappings as needed
+        
+        # Map news data to appropriate fields
+        if "news_data" in consolidated_results and consolidated_results["news_data"]:
+            news_data = consolidated_results["news_data"]
+            
+            # Map news sentiment if available
+            if not formatted_metrics.news_sentiment and "tone" in news_data:
+                tone = news_data["tone"].lower() if isinstance(news_data["tone"], str) else ""
+                if "positive" in tone:
+                    formatted_metrics.news_sentiment = "positive"
+                elif "negative" in tone:
+                    formatted_metrics.news_sentiment = "negative"
+                else:
+                    formatted_metrics.news_sentiment = "neutral"
+                    
+            if not formatted_metrics.recent_news_summary and "summary" in news_data:
+                formatted_metrics.recent_news_summary = news_data["summary"]
+        
+        # Include original data for debugging
+        formatted_response = {
+            "message": "File processed successfully with orchestrator",
+            "filename": file.filename,
+            "startup_metrics": formatted_metrics.model_dump()
+        }
+        
+        # Include original consolidated results for compatibility
+        formatted_response["raw_results"] = consolidated_results
         
         return JSONResponse(
             status_code=200,
-            content={
-                "message": "File processed successfully with orchestrator",
-                "filename": file.filename,
-                "results": consolidated_results
-            }
+            content=formatted_response
         )
     except Exception as e:
         # Handle exceptions
@@ -400,6 +494,54 @@ async def orchestrate_analysis(
     finally:
         # Always close the file
         file.file.close()
+
+
+@router.get("/financial/{company_name}")
+async def get_company_financial(company_name: str):
+    """
+    Get financial data for a specific company from SEC EDGAR.
+    
+    Args:
+        company_name: The name of the company or CIK number to get financial data for
+        
+    Returns:
+        Financial data about the company from SEC EDGAR
+    """
+    try:
+        # Initialize the financial agent
+        financial_agent = FinancialAgent()
+        
+        # Get financial data about the company
+        financial_data = financial_agent._run(company_name)
+        
+        # If the data is a JSON string, parse it
+        if isinstance(financial_data, str):
+            try:
+                financial_data_dict = json.loads(financial_data)
+            except json.JSONDecodeError:
+                financial_data_dict = {"raw_data": financial_data}
+        else:
+            financial_data_dict = financial_data
+        
+        # Return the financial data
+        return JSONResponse(
+            status_code=200,
+            content={
+                "message": f"Successfully retrieved financial data for {company_name}",
+                "company_name": company_name,
+                "financial_data": financial_data_dict
+            }
+        )
+    except Exception as e:
+        # Handle exceptions
+        import traceback
+        print(f"Error retrieving financial data: {str(e)}")
+        print(traceback.format_exc())
+        
+        return JSONResponse(
+            status_code=500,
+            content={"message": f"Error retrieving financial data: {str(e)}"}
+        )
 
 
 @router.get("/")
