@@ -355,41 +355,48 @@ class PDFAgentTools:
             return {}
     
     @tool
-    def get_category_to_search_data(company_name: str) -> Dict[str, Any]:
+    def get_startup_metrics_data(company_name: str) -> Dict[str, Any]:
         """
-        Get CategoryToSearch data for a company.
+        Get comprehensive StartupMetrics data for a company.
         
         Args:
             company_name: The name of the company to search for
             
         Returns:
-            Dictionary with CategoryToSearch data
+            Dictionary with StartupMetrics data
         """
         try:
             from langchain_core.pydantic_v1 import BaseModel, Field, create_model
             from langchain.output_parsers.pydantic import PydanticOutputParser
             from langchain_core.prompts import PromptTemplate
             from langchain_openai import ChatOpenAI
-            from models.model import CategoryToSearch
+            from models.model import StartupMetrics
             
-            # Create parser based on the CategoryToSearch model
-            parser = PydanticOutputParser(pydantic_object=CategoryToSearch)
+            # Create parser based on the StartupMetrics model
+            parser = PydanticOutputParser(pydantic_object=StartupMetrics)
             
             # Get data from WebSearchUtils
             news_data = WebSearchUtils.search_news(company_name)
             company_info = WebSearchUtils.search_company_info(company_name)
+            financial_data = WebSearchUtils.search_financial_data(company_name)
+            category_data = WebSearchUtils.search_category_to_search_data(company_name)
+            
+            # Combine all data sources
+            combined_data = {**company_info, **financial_data, **category_data}
             
             # Create a prompt that includes context and formatting instructions
             prompt = PromptTemplate(
                 template="""Based on the following information about {company_name}, please extract 
-                metrics that match the CategoryToSearch model.
+                metrics that match the StartupMetrics model.
                 
                 Company Information: {company_info}
                 News Data: {news_data}
+                Financial Data: {financial_data}
+                Additional Metrics: {category_data}
                 
                 {format_instructions}
                 """,
-                input_variables=["company_name", "company_info", "news_data"],
+                input_variables=["company_name", "company_info", "news_data", "financial_data", "category_data"],
                 partial_variables={"format_instructions": parser.get_format_instructions()},
             )
             
@@ -397,7 +404,9 @@ class PDFAgentTools:
             formatted_prompt = prompt.format(
                 company_name=company_name,
                 company_info=json.dumps(company_info),
-                news_data=json.dumps(news_data)
+                news_data=json.dumps(news_data),
+                financial_data=json.dumps(financial_data),
+                category_data=json.dumps(category_data)
             )
             
             # Get response from LLM
@@ -410,8 +419,11 @@ class PDFAgentTools:
             # Return as dictionary
             return data.model_dump()
         except Exception as e:
-            print(f"Error getting CategoryToSearch data: {str(e)}")
+            print(f"Error getting StartupMetrics data: {str(e)}")
             return {}
+    
+    # For backward compatibility
+    get_category_to_search_data = get_startup_metrics_data
 
 
 class PDFAgentExecutor:
@@ -437,7 +449,7 @@ class PDFAgentExecutor:
             PDFAgentTools.extract_social_profiles,
             PDFAgentTools.extract_linkedin_data,
             PDFAgentTools.search_news,
-            PDFAgentTools.get_category_to_search_data
+            PDFAgentTools.get_startup_metrics_data  # Use the new method instead of get_category_to_search_data
         ]
         
         # Add memory to maintain conversation context
@@ -517,26 +529,45 @@ class PDFAgentExecutor:
                 # If no JSON is found, create an empty structure
                 extracted_data = {}
             
-            # Format the data to match the Category model structure
-            category_data = self._format_to_category(extracted_data)
+            # Create a single StartupMetrics instance from extracted data
+            from models.model import StartupMetrics
+            metrics = StartupMetrics()
             
-            # Get CategoryToSearch data if web enrichment is enabled
-            search_category_data = {}
-            if enable_web_enrichment and "company_info" in category_data and category_data["company_info"].get("company_name"):
-                company_name = category_data["company_info"]["company_name"]
-                search_category = enrich_category_to_search(company_name)
-                search_category_data = search_category.model_dump()
+            # Populate the metrics model from extracted data
+            for key, value in extracted_data.items():
+                if hasattr(metrics, key):
+                    setattr(metrics, key, value)
             
-            # Return the final result
+            # Get additional metrics data if web enrichment is enabled
+            if enable_web_enrichment and metrics.company_name:
+                company_name = metrics.company_name
+                # Use the new enrichment function
+                from etl.util.model_util import enrich_startup_metrics_from_web
+                enriched_metrics = enrich_startup_metrics_from_web(company_name, metrics)
+                
+                # Return the final enriched metrics
+                return {
+                    "metrics": enriched_metrics.model_dump(),
+                    # For backward compatibility
+                    "main_category": enriched_metrics.model_dump(),
+                    "search_category": enriched_metrics.model_dump()
+                }
+            
+            # Return the non-enriched metrics if web enrichment is disabled
             return {
-                "main_category": category_data,
-                "search_category": search_category_data
+                "metrics": metrics.model_dump(),
+                # For backward compatibility
+                "main_category": metrics.model_dump(),
+                "search_category": metrics.model_dump()
             }
+            
         except Exception as e:
             print(f"Error processing agent output: {str(e)}")
             return {
-                "main_category": Category().model_dump(),
-                "search_category": CategoryToSearch().model_dump()
+                "metrics": StartupMetrics().model_dump(),
+                # For backward compatibility
+                "main_category": StartupMetrics().model_dump(),
+                "search_category": StartupMetrics().model_dump()
             }
     
     def _format_to_category(self, data: Dict[str, Any]) -> Dict[str, Any]:
