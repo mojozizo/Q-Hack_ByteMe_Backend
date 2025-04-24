@@ -86,15 +86,59 @@ NEWSAPI_API_TOKEN="your token here"
 
 ## Getting Started
 
-### Build
+### Prerequisites
+- Python 3.11+
+- Docker (optional, for containerized deployment)
+- Required API keys (see environment variables below)
+
+### Environment Variables
+Create a `.env` file in the root directory with the following variables:
+```
+OPENAI_API_KEY="your token here"
+BRIGHTDATA_API_TOKEN="your token here" 
+BRIGHTDATA_DATASET_ID="your token here"
+NEWSAPI_API_TOKEN="your token here"
+```
+
+### Installation
+1. Clone the repository
+```
+git clone https://github.com/yourusername/ByteMe.git
+cd ByteMe
+```
+
+2. Install dependencies
+```
+pip install -r requirements.txt
+```
+
+### Running FastAPI Directly
+To run the FastAPI application locally:
+```
+uvicorn main:app --reload --host 0.0.0.0 --port 8000
+```
+
+The API will be available at `http://localhost:8000`. Access the interactive API documentation at `http://localhost:8000/docs`.
+
+### Docker Deployment
+
+#### Build
 ```
 docker build -t q-backend .
 ```
 
-### Run
+#### Run
 ```
 docker run -v $(pwd)/:/app/ -p 8000:8000 q-backend
 ```
+
+#### Run with Environment Variables
+```
+docker run -v $(pwd)/:/app/ -p 8000:8000 --env-file .env q-backend
+```
+
+#### Access the API
+The API will be available at `http://localhost:8000`. Access the interactive API documentation at `http://localhost:8000/docs`.
 
 ## Technology Stack
 
